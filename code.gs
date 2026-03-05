@@ -110,7 +110,6 @@ function getInitialDates() {
   const calendarId = 'ja.japanese#holiday@group.v.calendar.google.com';
   const calendar = CalendarApp.getCalendarById(calendarId);
   const today = new Date();
-  
   const shipDateObj = new Date(today);
   shipDateObj.setDate(shipDateObj.getDate() + 1);
   const shipDate = Utilities.formatDate(shipDateObj, 'JST', 'yyyy-MM-dd');
@@ -137,7 +136,6 @@ function getAllCustomers() {
   const customers = getSheetDataAsObjects_(SHEET_CUSTOMER);
   const carriers = getSheetDataAsObjects_(SHEET_CARRIER_MASTER);
   const deliveries = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER, DELIVERY_SS_ID);
-
   const carrierNameMap = new Map();
   carriers.forEach(c => {
     if (c.配送会社名 && c.配送会社コード) {
@@ -189,14 +187,13 @@ function getAllCarriers() {
 function getAllProducts() {
    const products = getSheetDataAsObjects_(SHEET_PRODUCT);
    return products.map(p => {
-     // ★追加: 単位1〜5 と 換算数量1〜5 をオブジェクト（辞書）化
+     // 単位と換算数量をオブジェクト化
      const unitMap = {};
      for(let i=1; i<=5; i++) {
          const u = p[`単位${i}`];
          const r = p[`換算数量${i}`];
          if (u && String(u).trim() !== '') {
-             // 換算数量が空欄の場合は1として扱う
-             unitMap[u] = Number(r) || 1;
+             unitMap[String(u).trim()] = Number(r) || 1;
          }
      }
 
@@ -207,7 +204,8 @@ function getAllProducts() {
        brand: p.ブランド名 || '',      
        kana: p.品目名カナ || '',      
        unit: p.単位1 || '',          
-       unitMap: unitMap, // ★ここに追加                 
+       unitMap: unitMap, 
+       zaikoUnitName: p.在庫単位名 || '',               
        price: Number(p.標準売上単価) || 0, 
        caseQty: Number(p.入数) || 1, 
        gosu: Number(p.合数) || 0,
@@ -250,7 +248,6 @@ function getDashboardData() {
 function getRecentOrders() {
   const today = new Date();
   const dateStrings = [];
-  
   for (let i = 0; i < 3; i++) {
     const d = new Date();
     d.setDate(today.getDate() + i);
@@ -335,7 +332,11 @@ function getRecentOrders() {
         awaseId: c.合わせ || '', 
         shipDate: shipDateStr,
         deliveryDate: itemDateStr, 
-        remarks: c.摘要 || c.備考
+        remarks: c.摘要 || c.備考,
+        orderQty: c.注文時数量 || qty,
+        orderUnit: c.注文時単位 || c.単位コード || pInfo.unit,
+        kg: c.kg || 0,
+        shippingQty: c.出荷数 || 0
       };
     });
 
@@ -484,6 +485,7 @@ function updateAndConfirmOrder(data) {
     const cData = childSheet.getDataRange().getValues();
     const cHeaders = cData[0];
     
+    // 既存行の更新用インデックス
     const cIdx = {
       detailId: cHeaders.indexOf('内訳ID'),
       orderId: cHeaders.indexOf('注文ID'),
@@ -503,8 +505,13 @@ function updateAndConfirmOrder(data) {
       standard: cHeaders.indexOf('規格'),
       awase: cHeaders.indexOf('合わせ'),
       customer: cHeaders.indexOf('得意先名'), 
-      delivery: cHeaders.indexOf('納入先')    
+      delivery: cHeaders.indexOf('納入先'),
+      orderUnit: cHeaders.indexOf('注文時単位'),
+      orderQty: cHeaders.indexOf('注文時数量'),
+      kg: cHeaders.indexOf('kg'),
+      shippingQty: cHeaders.indexOf('出荷数')
     };
+    
     const detailIdMap = new Map();
     for(let i=1; i<cData.length; i++) {
       if(String(cData[i][cIdx.orderId]) === String(targetOrderId)) {
@@ -513,19 +520,16 @@ function updateAndConfirmOrder(data) {
     }
 
     const newRows = [];
+
     data.items.forEach((item, index) => {
       const isNew = String(item.orderId).startsWith('NEW-') || !item.detailId; 
-      
       const pInfo = productMap.get(String(item.productId)) || {price:0, caseQty:1, gosu:0, taxRate:0, taxType:0};
       
       const itemShipDateObj = item.shipDate ? new Date(item.shipDate) : ''; 
       const itemDeliveryDateObj = item.deliveryDate ? new Date(item.deliveryDate) : '';
       
-      const inputCaseCount = Number(item.caseCount) || 0;
-      const inputQuantity = Number(item.quantity) || 0;
-
-      const finalCaseCount = inputCaseCount;
-      const finalQuantity = finalCaseCount > 0 ? (finalCaseCount * pInfo.caseQty) : inputQuantity;
+      const finalCaseCount = Number(item.caseCount) || 0;
+      const finalQuantity = Number(item.quantity) || 0; // 請求用数量
 
       const unitPrice = pInfo.price;
       const amount = finalQuantity * unitPrice; 
@@ -549,45 +553,57 @@ function updateAndConfirmOrder(data) {
         if(cIdx.taxType !== -1) childSheet.getRange(rowNum, cIdx.taxType + 1).setValue(pInfo.taxType);
         if(cIdx.shipDate !== -1) childSheet.getRange(rowNum, cIdx.shipDate + 1).setValue(itemShipDateObj);
         if(cIdx.delDate !== -1) childSheet.getRange(rowNum, cIdx.delDate + 1).setValue(itemDeliveryDateObj);
-        
         if(cIdx.remarks !== -1) childSheet.getRange(rowNum, cIdx.remarks + 1).setValue(remarks);
-        if(cIdx.standard !== -1) childSheet.getRange(rowNum, cIdx.standard + 1).setValue(standard); 
+        if(cIdx.standard !== -1) childSheet.getRange(rowNum, cIdx.standard + 1).setValue(standard);
         if(cIdx.awase !== -1) childSheet.getRange(rowNum, cIdx.awase + 1).setValue(awaseVal);
         if(cIdx.customer !== -1) childSheet.getRange(rowNum, cIdx.customer + 1).setValue(parentCustId);
         if(cIdx.delivery !== -1) childSheet.getRange(rowNum, cIdx.delivery + 1).setValue(parentDelivery);
+
+        if(cIdx.orderUnit !== -1) childSheet.getRange(rowNum, cIdx.orderUnit + 1).setValue(item.orderUnit || '');
+        if(cIdx.orderQty !== -1) childSheet.getRange(rowNum, cIdx.orderQty + 1).setValue(item.orderQty || 0);
+        if(cIdx.kg !== -1) childSheet.getRange(rowNum, cIdx.kg + 1).setValue(item.kg || 0);
+        if(cIdx.shippingQty !== -1) childSheet.getRange(rowNum, cIdx.shippingQty + 1).setValue(item.shippingQty || 0);
+
       } else {
         const newDetailId = generateRandomId_();
+        
+        // ★ご指定の完全なカラム順番（27列）
         const row = [
-          newDetailId,          
-          targetOrderId,        
-          '',                   
-          itemShipDateObj,      
-          itemDeliveryDateObj,  
-          index + 1,            
-          item.productId,       
-          unit,                 
-          pInfo.caseQty,        
-          pInfo.gosu,           
-          finalCaseCount,       
-          '',                   
-          '',                   
-          finalQuantity,        
-          unitPrice,            
-          amount,               
-          pInfo.taxRate,        
-          pInfo.taxType,        
-          remarks,              
-          standard,             
-          awaseVal,             
-          parentCustId,         
-          parentDelivery        
+          newDetailId,          // 1. 内訳ID
+          targetOrderId,        // 2. 注文ID
+          '',                   // 3. 伝票番号
+          itemShipDateObj,      // 4. 出荷日
+          itemDeliveryDateObj,  // 5. 納品日
+          index + 1,            // 6. 行番号
+          item.productId,       // 7. 品目コード
+          unit,                 // 8. 単位コード
+          pInfo.caseQty,        // 9. 入数
+          pInfo.gosu,           // 10. 合数
+          finalCaseCount,       // 11. 箱数
+          '',                   // 12. 倉庫コード
+          '',                   // 13. ロット番号
+          finalQuantity,        // 14. 数量
+          unitPrice,            // 15. 単価
+          amount,               // 16. 金額
+          pInfo.taxRate,        // 17. 消費税率
+          pInfo.taxType,        // 18. 課税区分
+          remarks,              // 19. 摘要
+          standard,             // 20. 規格
+          awaseVal,             // 21. 合わせ
+          parentCustId,         // 22. 得意先名
+          parentDelivery,       // 23. 納入先
+          item.orderUnit || '', // 24. 注文時単位
+          item.orderQty || 0,   // 25. 注文時数量
+          item.kg || 0,         // 26. kg
+          item.shippingQty || 0 // 27. 出荷数
         ];
         newRows.push(row);
       }
     });
 
     if(newRows.length > 0) {
-      childSheet.getRange(childSheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+      const startRow = childSheet.getLastRow() + 1;
+      childSheet.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
     }
 
     CacheService.getScriptCache().remove(CACHE_KEY);
@@ -632,7 +648,7 @@ function createSplitRows_(items) {
         productName: item.productName,
         quantity: decimalPart,          
         price: decAmount,               
-        displayBox: '',                 
+        displayBox: '',       
         isFraction: true
       };
       if (item.awaseId) {
@@ -734,7 +750,6 @@ function generateBatchPdfs(targetList) {
       shipment.items.forEach(item => item.slipNumber = slipNo);
       slipCounter++;
     });
-
     shipmentsArray.forEach((shipment, index) => {
       const suffix = `_${index}`;
       shipment.orderIds.forEach(id => processedOrderIds.push(id));
@@ -830,8 +845,7 @@ function fillInvoiceSheet_(sheet, shipment) {
   sheet.getRange('A9').setValue(shipment.customerName + ' 御中');
 
   sheet.getRange('D3').setValue(getTodayString_());
-  sheet.getRange('C4').setValue(shipment.deliveryDate); 
-  
+  sheet.getRange('C4').setValue(shipment.deliveryDate);
   sheet.getRange('I1').setValue(shipment.slipNumber || ''); 
   sheet.getRange('B28').setValue(shipment.carrierName || ''); 
 
@@ -930,7 +944,8 @@ function importDeliveryMasterCsv(csvContent) {
   let sheet = ss.getSheetByName(SHEET_DELIVERY_MASTER);
   if (!sheet) sheet = ss.insertSheet(SHEET_DELIVERY_MASTER);
   let csvData;
-  try { csvData = Utilities.parseCsv(csvContent); } catch (e) { throw new Error('CSV読込失敗'); }
+  try { csvData = Utilities.parseCsv(csvContent); } catch (e) { throw new Error('CSV読込失敗');
+  }
   if (csvData.length === 0) return { status: 'success', message: 'データなし' };
 
   const lastRow = sheet.getLastRow();
@@ -941,7 +956,8 @@ function importDeliveryMasterCsv(csvContent) {
 
   const updates = [];
   const appends = [];
-  let startIndex = (csvData.length > 0 && (csvData[0][0] === '納入先コード' || csvData[0][0] === 'コード')) ? 1 : 0;
+  let startIndex = (csvData.length > 0 && (csvData[0][0] === '納入先コード' || csvData[0][0] === 'コード')) ?
+  1 : 0;
 
   for (let i = startIndex; i < csvData.length; i++) {
     const row = csvData[i].slice(0, 6);
