@@ -211,6 +211,11 @@
         let currentStatusFilter = 'all';
         let currentDateFilter = ''; 
 
+        // ★追加: 丸め関数（小数点第1位を残す四捨五入）
+        function round1st(x) {
+            return Math.round(x * 10) / 10;
+        }
+
         window.onload = () => {
             showPage('dashboard');
             
@@ -380,13 +385,18 @@
                             unitOptions = `<option value="${item.unit||''}" selected>${item.unit||''}</option>`;
                         }
 
-                        // ★追加: data-prev-unit を持たせ、onchange="onShipUnitChange(this)" を追加
+                        // data-kg などを付与
                         return `
                         <tr data-detail-id="${item.detailId || ''}" 
                             data-order-id="${item.orderId}" 
                             data-awase-id="${item.awaseId || ''}"
                             data-temp-type="${tempType}"
-                            data-delivery-date="${item.deliveryDate}"> 
+                            data-delivery-date="${item.deliveryDate}"
+                            data-kg="${item.kg || 0}"
+                            data-shipping-qty="${item.shippingQty || 0}"
+                            data-order-qty="${item.orderQty || item.quantity}"
+                            data-order-unit="${item.orderUnit || item.unit}"
+                            data-billing-qty="${item.quantity}"> 
                             <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select" onchange="onShipProductChange(this)"></select></div></td>
                             <td><input type="text" class="form-control form-control-sm ship-standard" value="${item.standard||''}" placeholder="規格"></td>
                             <td><select class="form-select form-select-sm ship-unit" data-prev-unit="${item.unit||''}" onchange="onShipUnitChange(this)">${unitOptions}</select></td>
@@ -396,7 +406,7 @@
                             <td><input type="number" class="form-control form-control-sm ship-case" value="${item.caseQty}" style="width:50px;" onchange="recalcShippingRow(this, false)"></td>
                             <td><input type="number" class="form-control form-control-sm ship-gosu" value="${item.gosu||0}" style="width:50px;" readonly tabindex="-1"></td>
                             <td><input type="number" class="form-control form-control-sm ship-case-count" value="${displayCaseCount}" style="width:50px;" oninput="recalcShippingRow(this, false)"></td>
-                            <td><input type="number" class="form-control form-control-sm ship-qty" step="0.5" value="${item.quantity}" onchange="recalcShippingRow(this, true)"></td>
+                            <td><input type="number" class="form-control form-control-sm ship-qty" step="0.5" value="${item.orderQty || item.quantity}" onchange="recalcShippingRow(this, true)"></td>
                             <td class="text-end fw-bold ship-total">¥${item.price.toLocaleString()}</td>
                             <td class="text-center">
                                 <input type="checkbox" class="form-check-input ship-awase" ${awaseChecked}>
@@ -582,35 +592,13 @@
             });
         }
 
-        // ★追加: 単位が切り替わったときの爆速計算ロジック
         function onShipUnitChange(selectEl) {
             const tr = selectEl.closest('tr');
-            const oldUnit = selectEl.getAttribute('data-prev-unit');
             const newUnit = selectEl.value;
-            const productId = $(tr.querySelector('.ship-product-select')).val();
-            
-            const product = select2Data.find(p => String(p.id) === String(productId));
-            if (!product || !product.unitMap) return;
-
-            // マスタから旧単位と新単位の換算値を取得（見つからなければ1）
-            const oldRatio = product.unitMap[oldUnit] || 1;
-            const newRatio = product.unitMap[newUnit] || 1;
-            
-            const qtyInput = tr.querySelector('.ship-qty');
-            let currentQty = parseFloat(qtyInput.value) || 0;
-            
-            // 新しい数量を算出: (現在の数量 × 古い換算値) ÷ 新しい換算値
-            let newQty = (currentQty * oldRatio) / newRatio;
-            
-            // 少数点の微小な誤差を丸める
-            newQty = Math.round(newQty * 100) / 100;
-
-            qtyInput.value = newQty;
-            
-            // 新しい単位を「直前の単位」として記憶
             selectEl.setAttribute('data-prev-unit', newUnit);
             
-            // 金額などの再計算処理に流す
+            // 単位が変わったので全計算を再実行する
+            const qtyInput = tr.querySelector('.ship-qty');
             recalcShippingRow(qtyInput, true);
         }
 
@@ -627,7 +615,6 @@
                 const unitSelect = tr.querySelector('.ship-unit');
                 unitSelect.innerHTML = '';
                 
-                // ★修正: 取得したunitMapに基づいてプルダウンを生成
                 if(product.unitMap && Object.keys(product.unitMap).length > 0) {
                     Object.keys(product.unitMap).forEach(u => {
                         const option = document.createElement('option');
@@ -643,43 +630,78 @@
                     unitSelect.appendChild(option);
                 }
                 
-                // プルダウン生成後、初期状態の単位を記憶させておく
                 unitSelect.setAttribute('data-prev-unit', unitSelect.value);
-
                 recalcShippingRow(select, false);
             }
         }
 
+        // ★書き換え: 重量（kg）ベース絶対値変換・受発注計算ロジック
         function recalcShippingRow(input, isQtyInput) {
             const tr = input.closest('tr');
-            const price = parseInt(tr.querySelector('.ship-price').value) || 0;
-            const caseQty = parseInt(tr.querySelector('.ship-case').value) || 1; // 入数
-            const caseCountInput = tr.querySelector('.ship-case-count');
-            const qtyInput = tr.querySelector('.ship-qty');
+            
+            const price = parseFloat(tr.querySelector('.ship-price').value) || 0; 
+            const orderUnit = tr.querySelector('.ship-unit').value;             
+            const orderQty = parseFloat(tr.querySelector('.ship-qty').value) || 0; 
+            
+            const productId = $(tr).find('.ship-product-select').val();
+            const product = allProductsCache.find(p => String(p.id) === String(productId));
+            
+            if (!product || !product.unitMap) return;
 
-            let cases = parseFloat(caseCountInput.value) || 0; 
-            let qty = parseFloat(qtyInput.value) || 0; 
+            // Phase 1: 受注単位からの絶対値正規化 (Order to Absolute Base)
+            const factorOrder = product.unitMap[orderUnit];
+            
+            if (factorOrder === undefined) {
+                console.warn(`Missing Unit Factor: 単位 '${orderUnit}' の換算係数が存在しません。`);
+                return; // 計算アボート
+            }
+            
+            // 絶対重量(kg)の算出
+            const kg = orderQty * factorOrder;
 
-            const isAwase = !!tr.dataset.awaseId;
-
-            if (!isQtyInput) {
-                if (!isAwase) {
-                    qty = cases * caseQty;
-                    qtyInput.value = qty;
-                }
-            } else {
-                // 数量が直接入力・計算された場合（連動解除）
+            // Phase 2: 後続ドメインへの分配計算 (Absolute Base to Domains)
+            
+            // 2-1. 請求・売上ドメイン計算
+            const billingQty = kg; 
+            const amount = billingQty * price;
+            
+            // 2-2. 物流・出荷ドメイン計算（逆算・端数丸め処理）
+            let shippingQty = 0;
+            const factorZaiko = product.unitMap[product.zaikoUnitName];
+            if (factorZaiko) {
+                shippingQty = round1st(kg / factorZaiko);
+            }
+            
+            // 箱数の算出 (優先順位：単箱 > c/s > 箱)
+            let boxQty = null;
+            const factorBox = product.unitMap['単箱'] || product.unitMap['c/s'] || product.unitMap['箱'];
+            if (factorBox) {
+                boxQty = round1st(kg / factorBox);
             }
 
-            const total = qty * price;
-            tr.querySelector('.ship-total').textContent = `¥${Math.floor(total).toLocaleString()}`;
+            // --- UIとデータへの反映 ---
+            tr.querySelector('.ship-total').textContent = `¥${Math.floor(amount).toLocaleString()}`;
             
+            const caseCountInput = tr.querySelector('.ship-case-count');
+            if (boxQty !== null) {
+                caseCountInput.value = boxQty;
+            } else {
+                caseCountInput.value = ''; 
+            }
+            
+            // データ永続化のために tr 要素のデータセットに保持
+            tr.dataset.kg = kg;
+            tr.dataset.billingQty = billingQty;
+            tr.dataset.shippingQty = shippingQty;
+            tr.dataset.orderQty = orderQty;
+            tr.dataset.orderUnit = orderUnit;
+
             const accordion = tr.closest('.accordion-item');
             let groupTotal = 0;
             accordion.querySelectorAll('tbody tr').forEach(row => {
-                const p = parseInt(row.querySelector('.ship-price').value) || 0;
-                const q = parseFloat(row.querySelector('.ship-qty').value) || 0;
-                groupTotal += p * q;
+                const rowPrice = parseFloat(row.querySelector('.ship-price').value) || 0;
+                const rowBillingQty = parseFloat(row.dataset.billingQty) || 0;
+                groupTotal += rowPrice * rowBillingQty;
             });
             accordion.querySelector('.ship-group-total').textContent = `¥${Math.floor(groupTotal).toLocaleString()}`;
         }
@@ -687,7 +709,8 @@
         function addNewShippingRow(btn, parentId) {
             const tbody = btn.closest('.accordion-body').querySelector('tbody');
             const rowHtml = `
-                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" data-delivery-date="${currentDateFilter || defaultDeliveryDate}">
+                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" data-delivery-date="${currentDateFilter || defaultDeliveryDate}"
+                    data-kg="0" data-shipping-qty="0" data-order-qty="0" data-order-unit="" data-billing-qty="0">
                     <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select-new" onchange="onShipProductChange(this)"><option></option></select></div></td>
                     <td><input type="text" class="form-control form-control-sm ship-standard" placeholder="規格"></td>
                     <td><select class="form-select form-select-sm ship-unit" data-prev-unit="" onchange="onShipUnitChange(this)"></select></td>
@@ -804,17 +827,12 @@
 
             const items = [];
             let validationError = false;
-            let unitError = false;
             
             itemEl.querySelectorAll('tbody tr').forEach(tr => {
                 const productId = $(tr).find('.ship-product-select').val();
                 if (!productId) validationError = true; 
-                
-                const qty = parseFloat(tr.querySelector('.ship-qty').value)||0;
-                if (qty > 0 && qty % 0.5 !== 0) {
-                    unitError = true;
-                }
 
+                // ★修正: 計算済みの値をバックエンドに送る
                 items.push({
                     orderId: tr.dataset.orderId,
                     detailId: tr.dataset.detailId, 
@@ -824,9 +842,14 @@
                     shipDate: tr.querySelector('.ship-item-sdate').value, 
                     deliveryDate: tr.querySelector('.ship-item-date').value, 
                     price: parseInt(tr.querySelector('.ship-price').value)||0,
-                    caseQty: parseInt(tr.querySelector('.ship-case').value)||1,
-                    caseCount: parseFloat(tr.querySelector('.ship-case-count').value)||0,
-                    quantity: parseFloat(tr.querySelector('.ship-qty').value)||0,
+                    
+                    orderQty: parseFloat(tr.dataset.orderQty) || parseFloat(tr.querySelector('.ship-qty').value) || 0,
+                    orderUnit: tr.dataset.orderUnit || tr.querySelector('.ship-unit').value,
+                    kg: parseFloat(tr.dataset.kg) || 0,
+                    shippingQty: parseFloat(tr.dataset.shippingQty) || 0,
+                    caseCount: parseFloat(tr.querySelector('.ship-case-count').value) || 0,
+                    quantity: parseFloat(tr.dataset.billingQty) || 0, // 請求データ層の数量 = kg
+
                     awaseId: tr.dataset.awaseId || '', 
                     isAwase: (!!tr.dataset.awaseId), 
                     newRemarks: tr.querySelector('.ship-rem').value
@@ -834,7 +857,6 @@
             });
             
             if (validationError) return Swal.fire('注意', '商品が選択されていない行があります。', 'warning');
-            if (unitError) return Swal.fire('注意', '数量は0.5単位で入力してください', 'warning');
             
             const result = await Swal.fire({
                 title: '確定しますか？',
