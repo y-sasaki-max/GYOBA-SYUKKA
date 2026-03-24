@@ -3,6 +3,7 @@ const SPREADSHEET_ID = '1TpkECkY_JUu_g7SogBTz1yjG7PusBn_-vqKk_UJf0S4';
 const SHEET_CUSTOMER = '顧客マスタ'; 
 const SHEET_PRODUCT = '商品マスタ';
 const SHEET_CARRIER_MASTER = '配送会社マスタ';
+const SHEET_STOCK = '品目倉庫別在庫'; // ←追加: 倉庫在庫シート
 const SHEET_ORDER_PARENT = '注文履歴_親';
 const SHEET_ORDER_CHILD = '注文履歴_子'; 
 
@@ -336,10 +337,11 @@ function getRecentOrders() {
         orderQty: c.注文時数量 || qty,
         orderUnit: c.注文時単位 || c.単位コード || pInfo.unit,
         kg: c.kg || 0,
-        shippingQty: c.出荷数 || 0
+        shippingQty: c.出荷数 || 0,
+        warehouseCode: c.倉庫コード || '', // ←追加
+        lotNumber: c.ロット番号 || ''      // ←追加
       };
     });
-
     if (hasRecentItem) {
       const total = items.reduce((sum, item) => sum + item.price, 0);
       const custId = parent.取引先コード || parent.得意先コード || parent.顧客ID;
@@ -509,9 +511,10 @@ function updateAndConfirmOrder(data) {
       orderUnit: cHeaders.indexOf('注文時単位'),
       orderQty: cHeaders.indexOf('注文時数量'),
       kg: cHeaders.indexOf('kg'),
-      shippingQty: cHeaders.indexOf('出荷数')
+      shippingQty: cHeaders.indexOf('出荷数'),
+      warehouseCode: cHeaders.indexOf('倉庫コード'), // ←追加
+      lotNumber: cHeaders.indexOf('ロット番号')      // ←追加
     };
-    
     const detailIdMap = new Map();
     for(let i=1; i<cData.length; i++) {
       if(String(cData[i][cIdx.orderId]) === String(targetOrderId)) {
@@ -520,7 +523,6 @@ function updateAndConfirmOrder(data) {
     }
 
     const newRows = [];
-
     data.items.forEach((item, index) => {
       const isNew = String(item.orderId).startsWith('NEW-') || !item.detailId; 
       const pInfo = productMap.get(String(item.productId)) || {price:0, caseQty:1, gosu:0, taxRate:0, taxType:0};
@@ -558,15 +560,14 @@ function updateAndConfirmOrder(data) {
         if(cIdx.awase !== -1) childSheet.getRange(rowNum, cIdx.awase + 1).setValue(awaseVal);
         if(cIdx.customer !== -1) childSheet.getRange(rowNum, cIdx.customer + 1).setValue(parentCustId);
         if(cIdx.delivery !== -1) childSheet.getRange(rowNum, cIdx.delivery + 1).setValue(parentDelivery);
-
         if(cIdx.orderUnit !== -1) childSheet.getRange(rowNum, cIdx.orderUnit + 1).setValue(item.orderUnit || '');
         if(cIdx.orderQty !== -1) childSheet.getRange(rowNum, cIdx.orderQty + 1).setValue(item.orderQty || 0);
         if(cIdx.kg !== -1) childSheet.getRange(rowNum, cIdx.kg + 1).setValue(item.kg || 0);
         if(cIdx.shippingQty !== -1) childSheet.getRange(rowNum, cIdx.shippingQty + 1).setValue(item.shippingQty || 0);
-
+        if(cIdx.warehouseCode !== -1) childSheet.getRange(rowNum, cIdx.warehouseCode + 1).setValue(item.warehouseCode || ''); // ←追加
+        if(cIdx.lotNumber !== -1) childSheet.getRange(rowNum, cIdx.lotNumber + 1).setValue(item.lotNumber || ''); // ←追加
       } else {
         const newDetailId = generateRandomId_();
-        
         // ★ご指定の完全なカラム順番（27列）
         const row = [
           newDetailId,          // 1. 内訳ID
@@ -580,8 +581,8 @@ function updateAndConfirmOrder(data) {
           pInfo.caseQty,        // 9. 入数
           pInfo.gosu,           // 10. 合数
           finalCaseCount,       // 11. 箱数
-          '',                   // 12. 倉庫コード
-          '',                   // 13. ロット番号
+          item.warehouseCode || '', // 12. 倉庫コード (変更)
+          item.lotNumber || '',     // 13. ロット番号 (変更)
           finalQuantity,        // 14. 数量
           unitPrice,            // 15. 単価
           amount,               // 16. 金額
@@ -600,7 +601,6 @@ function updateAndConfirmOrder(data) {
         newRows.push(row);
       }
     });
-
     if(newRows.length > 0) {
       const startRow = childSheet.getLastRow() + 1;
       childSheet.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
@@ -957,7 +957,7 @@ function importDeliveryMasterCsv(csvContent) {
   const updates = [];
   const appends = [];
   let startIndex = (csvData.length > 0 && (csvData[0][0] === '納入先コード' || csvData[0][0] === 'コード')) ?
-  1 : 0;
+1 : 0;
 
   for (let i = startIndex; i < csvData.length; i++) {
     const row = csvData[i].slice(0, 6);
@@ -982,4 +982,24 @@ function generateShippingInstructions(targetList) {
     url: 'https://docs.google.com/spreadsheets/d/1GnhQRHvBZ7yL-cgHeaCNDCt8OtM-m09zI060vxw03K8/edit?pli=1&gid=423721715#gid=423721715',
     message: '出荷指示書のシートを開きます。'
   };
+}
+
+// --- 在庫引当（フロント連携API） ---
+function getAvailableStocks(productId) {
+  const stocks = getSheetDataAsObjects_(SHEET_STOCK);
+  // 指定された品目コードと一致する在庫情報を抽出
+  return stocks.filter(s => String(s.品目コード) === String(productId)).map(s => {
+    let expDate = '';
+    if (s.賞味期限) {
+      expDate = (s.賞味期限 instanceof Date) ? Utilities.formatDate(s.賞味期限, 'JST', 'yyyy/MM/dd') : s.賞味期限;
+    }
+    return {
+      warehouseCode: s.倉庫コード || '',
+      warehouseName: s.倉庫名 || '',
+      lotNumber: s.ロット番号 || '',
+      expirationDate: expDate,
+      stockQty: s.在庫数量 || 0,
+      unit: s.単位 || ''
+    };
+  });
 }
