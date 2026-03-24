@@ -214,6 +214,35 @@
         </div>
     </main>
 
+    <div class="modal fade" id="stockModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-box2 me-2"></i>在庫引当</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="table-responsive">
+              <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>倉庫名</th>
+                    <th>ロット番号</th>
+                    <th>賞味期限</th>
+                    <th class="text-end">在庫数量</th>
+                    <th>単位</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="stock-modal-tbody">
+                  </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -437,12 +466,22 @@
                                 <input type="checkbox" class="form-check-input ship-awase" ${awaseChecked}>
                                 ${awaseBadge}
                             </td>
+                            <td>
+                                <div class="stock-action-area" style="display: ${tempType === 'frozen' ? 'block' : 'none'}">
+                                    <button type="button" class="btn btn-sm btn-outline-info p-1 px-2" onclick="openStockModal(this)"><i class="bi bi-search"></i> 引当</button>
+                                    <div class="small text-muted mt-1 stock-info-text lh-1" style="font-size:0.75rem;">
+                                        ${item.warehouseCode ? `倉: ${item.warehouseCode}<br>ﾛｯﾄ: ${item.lotNumber}` : '未指定'}
+                                    </div>
+                                    <input type="hidden" class="ship-warehouse-code" value="${item.warehouseCode || ''}">
+                                    <input type="hidden" class="ship-lot-number" value="${item.lotNumber || ''}">
+                                </div>
+                                <div class="stock-not-frozen small text-muted text-center" style="display: ${tempType === 'frozen' ? 'none' : 'block'}">-</div>
+                            </td>
                             <td><input type="text" class="form-control form-control-sm ship-rem" value="${item.remarks||''}"></td>
                             <td><button class="btn btn-outline-danger btn-sm border-0" onclick="deleteOrder('${item.detailId}', '${item.orderId}')"><i class="bi bi-trash"></i></button></td>
                         </tr>
                     `}).join('');
 
-                    // 変更: 納入先プルダウンの初期値判定を、コードまたは名称でマッチするように緩和
                     let deliveryOptions = `<option value="">(納入先なし)</option>`;
                     const myDestinations = allDeliveryDestinationsCache.filter(d => String(d.customerId) === String(o.customerId));
                     myDestinations.forEach(d => {
@@ -453,7 +492,6 @@
                         deliveryOptions += `<option value="${d.id}" ${selected}>${d.name}</option>`;
                     });
                     
-                    // 変更: 配送会社プルダウンの初期値判定を、コードまたは名称でマッチするように緩和
                     let carrierOptions = `<option value="">(配送会社なし)</option>`;
                     allCarriersCache.forEach(c => {
                         const isMatch = (String(c.id) === String(o.carrierCode)) || 
@@ -520,6 +558,7 @@
                                                     <th>数量</th>
                                                     <th>金額</th>
                                                     <th style="width:60px">合</th>
+                                                    <th style="min-width:110px">引当/ロット</th>
                                                     <th>備考</th>
                                                     <th></th>
                                                 </tr>
@@ -687,6 +726,17 @@
                 }
                 
                 unitSelect.setAttribute('data-prev-unit', unitSelect.value);
+
+                // tempTypeの更新と引当UIの切り替え
+                tr.dataset.tempType = product.tempType;
+                if (product.tempType === 'frozen') {
+                    tr.querySelector('.stock-action-area').style.display = 'block';
+                    tr.querySelector('.stock-not-frozen').style.display = 'none';
+                } else {
+                    tr.querySelector('.stock-action-area').style.display = 'none';
+                    tr.querySelector('.stock-not-frozen').style.display = 'block';
+                }
+
                 recalcShippingRow(select, false);
             }
         }
@@ -805,6 +855,15 @@
                     <td><input type="number" class="form-control form-control-sm ship-qty" step="0.5" value="0" onchange="recalcShippingRow(this, false)" style="width:70px;"></td>
                     <td class="text-end fw-bold ship-total">¥0</td>
                     <td class="text-center"><input type="checkbox" class="form-check-input ship-awase"></td>
+                    <td>
+                        <div class="stock-action-area" style="display: none">
+                            <button type="button" class="btn btn-sm btn-outline-info p-1 px-2" onclick="openStockModal(this)"><i class="bi bi-search"></i> 引当</button>
+                            <div class="small text-muted mt-1 stock-info-text lh-1" style="font-size:0.75rem;">未指定</div>
+                            <input type="hidden" class="ship-warehouse-code" value="">
+                            <input type="hidden" class="ship-lot-number" value="">
+                        </div>
+                        <div class="stock-not-frozen small text-muted text-center">-</div>
+                    </td>
                     <td><input type="text" class="form-control form-control-sm ship-rem" value=""></td>
                     <td><button class="btn btn-outline-secondary btn-sm border-0" onclick="this.closest('tr').remove()"><i class="bi bi-x-lg"></i></button></td>
                 </tr>
@@ -939,7 +998,9 @@
 
                     awaseId: tr.dataset.awaseId || '', 
                     isAwase: (!!tr.dataset.awaseId), 
-                    newRemarks: tr.querySelector('.ship-rem').value
+                    newRemarks: tr.querySelector('.ship-rem').value,
+                    warehouseCode: tr.querySelector('.ship-warehouse-code') ? tr.querySelector('.ship-warehouse-code').value : '',
+                    lotNumber: tr.querySelector('.ship-lot-number') ? tr.querySelector('.ship-lot-number').value : ''
                 });
             });
             
@@ -1099,6 +1160,65 @@
                     reader.onerror = function() { Swal.fire('エラー', 'ファイルの読み込みに失敗しました', 'error'); showLoading(false); };
                 }
             });
+        }
+
+        // --- 在庫引当モーダル用ロジック ---
+        let currentStockTargetRow = null;
+        let stockModalInstance = null;
+
+        async function openStockModal(btn) {
+            currentStockTargetRow = btn.closest('tr');
+            const productId = $(currentStockTargetRow).find('.ship-product-select').val();
+            
+            if (!productId) {
+                return Swal.fire('注意', '先に商品を選択してください。', 'warning');
+            }
+
+            showLoading(true);
+            try {
+                const stocks = await callGAS('getAvailableStocks', productId);
+                const tbody = document.getElementById('stock-modal-tbody');
+                
+                if (stocks.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">該当商品の在庫が見つかりません</td></tr>';
+                } else {
+                    tbody.innerHTML = stocks.map(s => `
+                        <tr>
+                            <td>${s.warehouseName} <span class="badge bg-secondary ms-1">${s.warehouseCode}</span></td>
+                            <td class="fw-bold text-primary">${s.lotNumber}</td>
+                            <td>${s.expirationDate || '-'}</td>
+                            <td class="text-end fw-bold">${s.stockQty}</td>
+                            <td>${s.unit}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" onclick="selectStockItem('${s.warehouseCode}', '${s.lotNumber}')">
+                                    選択
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+                
+                if (!stockModalInstance) {
+                    stockModalInstance = new bootstrap.Modal(document.getElementById('stockModal'));
+                }
+                stockModalInstance.show();
+
+            } catch(e) {
+                Swal.fire('エラー', '在庫の取得に失敗しました: ' + e.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function selectStockItem(warehouseCode, lotNumber) {
+            if (currentStockTargetRow) {
+                currentStockTargetRow.querySelector('.ship-warehouse-code').value = warehouseCode;
+                currentStockTargetRow.querySelector('.ship-lot-number').value = lotNumber;
+                currentStockTargetRow.querySelector('.stock-info-text').innerHTML = `倉: ${warehouseCode}<br>ﾛｯﾄ: ${lotNumber}`;
+                
+                stockModalInstance.hide();
+                showToast(`ロット番号 ${lotNumber} を引き当てました`, 'info');
+            }
         }
     </script>
 </body>
