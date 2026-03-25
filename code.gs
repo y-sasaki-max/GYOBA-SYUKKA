@@ -4,6 +4,7 @@ const SHEET_CUSTOMER = '顧客マスタ';
 const SHEET_PRODUCT = '商品マスタ';
 const SHEET_CARRIER_MASTER = '配送会社マスタ';
 const SHEET_STOCK = '品目倉庫別在庫'; // ←追加: 倉庫在庫シート
+const SHEET_UNIT_MASTER = '単位マスタ';
 const SHEET_ORDER_PARENT = '注文履歴_親';
 const SHEET_ORDER_CHILD = '注文履歴_子'; 
 
@@ -198,21 +199,31 @@ function getAllProducts() {
          }
      }
 
-     return { 
-       id: p.品目コード,             
-       name: p.品目名,                
-       standard: p.規格 || '',        
-       brand: p.ブランド名 || '',      
-       kana: p.品目名カナ || '',      
-       unit: p.単位1 || '',          
-       unitMap: unitMap, 
-       zaikoUnitName: p.在庫単位名 || '',               
-       price: Number(p.標準売上単価) || 0, 
-       caseQty: Number(p.入数) || 1, 
+     return {
+       id: p.品目コード,
+       name: p.品目名,
+       standard: p.規格 || '',
+       brand: p.ブランド名 || '',
+       kana: p.品目名カナ || '',
+       unit: p.単位1 || '',
+       unitMap: unitMap,
+       zaikoUnitName: p.在庫単位名 || '',
+       tradeUnitCode: String(p.取引単位コード ?? ''),
+       tradeUnitName: p.取引単位名 || p.単位1 || '',
+       price: Number(p.標準売上単価) || 0,
+       caseQty: Number(p.入数) || 1,
        gosu: Number(p.合数) || 0,
-       tempType: (p.在庫管理区分 === 'する' || p.在庫管理区分 === '冷凍') ? 'frozen' : 'chilled' 
+       tempType: (p.在庫管理区分 === 'する' || p.在庫管理区分 === '冷凍') ? 'frozen' : 'chilled'
      };
    });
+}
+
+function getAllUnitMaster() {
+  const units = getSheetDataAsObjects_(SHEET_UNIT_MASTER);
+  return units.map(u => ({
+    code: String(u['単位コード'] ?? u[Object.keys(u)[0]] ?? ''),
+    name: String(u['単位名'] ?? u[Object.keys(u)[1]] ?? '')
+  }));
 }
 
 function getAllDeliveryDestinations() {
@@ -705,8 +716,10 @@ function generateBatchPdfs(targetList) {
           customerName: order.customerName,
           customerAddress: order.customerAddress,
           deliveryDate: dDate,
+          shipDate: item.shipDate || '',
           deliveryDestination: order.deliveryDestination,
-          carrierName: order.carrierName,                 
+          deliveryDestinationCode: order.deliveryDestinationCode,
+          carrierName: order.carrierName,
           orderIds: new Set(),
           items: []
         };
@@ -727,6 +740,13 @@ function generateBatchPdfs(targetList) {
     const generatedSheetIds = [];
     const shipmentsArray = Object.values(groupedShipments);
     const processedOrderIds = [];
+
+    // 単位マスタ読み込み（単位コード→単位名変換用）
+    const unitMasterRows = getSheetDataAsObjects_(SHEET_UNIT_MASTER);
+    const unitCodeToName = new Map(unitMasterRows.map(u => [
+      String(u['単位コード'] ?? u[Object.keys(u)[0]] ?? ''),
+      String(u['単位名']   ?? u[Object.keys(u)[1]] ?? '')
+    ]));
 
     const ssMain = SpreadsheetApp.openById(SPREADSHEET_ID);
     const childSheetMain = ssMain.getSheetByName(SHEET_ORDER_CHILD);
@@ -759,7 +779,7 @@ function generateBatchPdfs(targetList) {
 
       if (templateInvoice) {
         const sheetInv = templateInvoice.copyTo(newSs).setName(`Inv${suffix}`);
-        fillInvoiceSheet_(sheetInv, processedShipment);
+        fillInvoiceSheet_(sheetInv, processedShipment, unitCodeToName);
         generatedSheetIds.push(sheetInv.getSheetId()); 
       }
 
@@ -840,28 +860,33 @@ function updateSlipNumbersAndFlags_(slipUpdates, orderIds) {
   }
 }
 
-function fillInvoiceSheet_(sheet, shipment) {
-  sheet.getRange('A7').setValue(shipment.customerAddress || ''); 
+function fillInvoiceSheet_(sheet, shipment, unitCodeToName) {
+  sheet.getRange('A7').setValue(shipment.customerAddress || '');
   sheet.getRange('A9').setValue(shipment.customerName + ' 御中');
 
-  sheet.getRange('D3').setValue(getTodayString_());
+  sheet.getRange('D3').setValue(shipment.shipDate || getTodayString_());
   sheet.getRange('C4').setValue(shipment.deliveryDate);
-  sheet.getRange('I1').setValue(shipment.slipNumber || ''); 
-  sheet.getRange('B28').setValue(shipment.carrierName || ''); 
+  sheet.getRange('I1').setValue(shipment.slipNumber || '');
+  sheet.getRange('B28').setValue(shipment.carrierName || '');
 
-  sheet.getRange(13, 1, 14, 8).clearContent();
-  const rows = shipment.items.map(item => [
-    item.productName,       
-    item.standard || '-',   
-    item.caseQty,           
-    item.unit || '',        
-    item.unitPrice,         
-    item.displayBox,        
-    item.quantity,          
-    item.price   
-  ]);
+  // 明細: A=品目名, B=規格, C=単価, D=入数, E=合数, F=箱数, G=数量, H=単位名, I=摘要/備考
+  sheet.getRange(13, 1, 14, 9).clearContent();
+  const rows = shipment.items.map(item => {
+    const unitName = (unitCodeToName && unitCodeToName.get(String(item.unit || ''))) || item.unit || '';
+    return [
+      item.productName,
+      item.standard || '-',
+      '',
+      item.caseQty,
+      item.gosu || 0,
+      item.displayBox,
+      item.quantity,
+      unitName,
+      item.remarks || ''
+    ];
+  });
   if (rows.length > 0) {
-    sheet.getRange(13, 1, rows.length, 8).setValues(rows);
+    sheet.getRange(13, 1, rows.length, 9).setValues(rows);
   }
 
   let totalBox = 0;
@@ -889,8 +914,8 @@ function fillDeliverySheet_(sheet, shipment) {
   const rows = shipment.items.map(item => [
     `${item.productName} / ${item.standard || '-'}`,
     '',
-    item.caseQty,
-    item.displayBox, 
+    `${item.caseQty}/${item.gosu || 0}`,
+    item.displayBox,
     item.quantity, 
     item.unitPrice, 
     item.price,
@@ -916,7 +941,7 @@ function fillDeliverySheet_(sheet, shipment) {
   const totalIncTax = totalAmount + tax;
 
   sheet.getRange('A21').setValue("納入先");
-  sheet.getRange('B21').setValue(shipment.deliveryDestination || ''); 
+  sheet.getRange('B21').setValue(shipment.deliveryDestinationCode || shipment.deliveryDestination || '');
 
   sheet.getRange('D21').setValue(totalCase); 
   sheet.getRange('E21').setValue(totalQty);
