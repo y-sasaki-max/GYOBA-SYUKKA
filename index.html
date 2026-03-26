@@ -15,21 +15,27 @@
         .page { display: none; }
         .page.active { display: block; }
 
+        /* ★変更：画面全体を覆うローディングを廃止し、左下の小さな通知に変更 */
         .loading-spinner {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.85); 
+            bottom: 20px;
+            left: 20px;
+            width: auto;
+            height: auto;
+            background: rgba(255, 255, 255, 0.95); 
             z-index: 9999;
-            flex-direction: column;
+            flex-direction: row;
             justify-content: center;
             align-items: center;
+            padding: 12px 24px;
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            border: 1px solid #dee2e6;
+            pointer-events: none; /* マウス操作を貫通させる（裏のボタンを押せる） */
         }
-        .loading-text { margin-top: 15px; font-weight: bold; color: #0d6efd; font-size: 1.1rem; }
-        .spinner-border { width: 3rem; height: 3rem; }
+        .loading-text { margin-top: 0; margin-left: 12px; font-weight: bold; color: #0d6efd; font-size: 1rem; }
+        .spinner-border { width: 1.5rem; height: 1.5rem; border-width: 0.2em; }
         
         .alert-customer-item { transition: background-color 0.2s; }
         .alert-customer-item:hover { background-color: #fff3cd; }
@@ -98,7 +104,7 @@
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
         </div>
-        <div class="loading-text">読み込み中...</div>
+        <div class="loading-text">通信中...</div>
     </div>
 
     <div id="toast-container"></div>
@@ -132,7 +138,12 @@
         <div id="shipping-page" class="page">
             <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
                 <h3>出荷登録</h3>
-                <button class="btn btn-outline-primary btn-sm" onclick="loadShippingData()"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+                <div>
+                    <button class="btn btn-warning btn-sm me-2" onclick="window.open('https://docs.google.com/spreadsheets/d/1GnhQRHvBZ7yL-cgHeaCNDCt8OtM-m09zI060vxw03K8/edit?pli=1&gid=423721715#gid=423721715', '_blank')">
+                        <i class="bi bi-list-check"></i> 出荷指示書を開く
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="loadShippingData()"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+                </div>
             </div>
 
             <div class="mb-2">
@@ -161,11 +172,6 @@
             <div class="d-flex justify-content-end mb-2 bg-light p-2 rounded border" id="batch-action-area" style="display:none;">
                 <div class="d-flex align-items-center">
                     <span class="me-3 fw-bold"><span id="selected-count">0</span> 件選択中</span>
-                    
-                    <button class="btn btn-warning me-2" onclick="generateShippingInstructions()">
-                        <i class="bi bi-list-check"></i> 出荷指示書作成
-                    </button>
-
                     <button class="btn btn-danger" onclick="generateBatchPdfs()">
                         <i class="bi bi-file-earmark-pdf-fill"></i> 送り状・納品書発行
                     </button>
@@ -258,7 +264,7 @@
         let currentTempFilter = 'all';
         let currentStatusFilter = 'all';
         let currentDateFilter = ''; 
-        let currentCustomerPrices = {}; // ★追加: 取引先ごとの単価キャッシュ
+        let currentCustomerPrices = {};
 
         // 丸め関数（小数点第1位を残す四捨五入）
         function round1st(x) {
@@ -422,6 +428,8 @@
                     const badge = isConfirmed ? '<span class="badge bg-success">確定済み</span>' : '<span class="badge bg-warning text-dark">未確定</span>';
                     const printedBadge = o.isPrinted ? '<span class="badge bg-info text-white ms-2">出力済</span>' : '';
                     
+                    const shipBadge = `<span class="badge bg-secondary me-2"><i class="bi bi-truck"></i> ${o.shipDateGroup} 出荷分</span>`;
+                    
                     const createRows = (items) => items.map(item => {
                         let awaseBadge = '';
                         let awaseChecked = '';
@@ -454,13 +462,14 @@
                             data-order-id="${item.orderId}" 
                             data-awase-id="${item.awaseId || ''}"
                             data-temp-type="${tempType}"
+                            data-ship-date="${item.shipDate}" 
                             data-delivery-date="${item.deliveryDate}"
                             data-kg="${item.kg || 0}"
                             data-shipping-qty="${item.shippingQty || 0}"
                             data-order-qty="${item.orderQty || item.quantity}"
                             data-order-unit="${item.orderUnit || getUnitName(item.unit)}"
                             data-billing-qty="${item.quantity}">
-                            <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select" onchange="onShipProductChange(this)"></select></div></td>
+                            <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select" data-init="1" onchange="onShipProductChange(this)"></select></div></td>
                             <td><input type="text" class="form-control form-control-sm ship-standard" value="${item.standard||''}" placeholder="規格"></td>
                             <td><input type="text" class="form-control form-control-sm ship-order-unit" value="${item.orderUnit || getUnitName(item.unit) || ''}" style="width:70px;"></td>
                             <td><input type="number" class="form-control form-control-sm ship-order-qty" step="0.5" value="${item.orderQty || item.quantity}" style="width:70px;" onchange="onOrderQtyChange(this)"></td>
@@ -493,7 +502,7 @@
                                 <div class="stock-not-frozen small text-muted text-center" style="display: ${tempType === 'frozen' ? 'none' : 'block'}">-</div>
                             </td>
                             <td><input type="text" class="form-control form-control-sm ship-rem" value="${item.remarks||''}"></td>
-                            <td><button class="btn btn-outline-danger btn-sm border-0" onclick="deleteOrder('${item.detailId}', '${item.orderId}')"><i class="bi bi-trash"></i></button></td>
+                            <td><button class="btn btn-outline-danger btn-sm border-0" onclick="deleteOrder('${item.detailId}', '${item.orderId}', this)"><i class="bi bi-trash"></i></button></td>
                         </tr>
                     `}).join('');
 
@@ -538,6 +547,7 @@
                                         <div class="d-flex align-items-center">
                                             <span class="badge bg-light text-dark border me-2">${o.carrierName || '配送なし'}</span>
                                             <span class="text-muted small me-3">合計: <span class="ship-group-total">¥${o.totalPrice.toLocaleString()}</span></span>
+                                            ${shipBadge}
                                             ${badge}
                                             ${printedBadge} 
                                         </div>
@@ -609,7 +619,6 @@
                 $('.ship-carrier-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 $('.ship-delivery-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 
-                // ★追加・変更: 顧客変更時に過去の個別単価マスタを取得
                 $('.ship-cust-select').on('change', async function() {
                     const newCustId = $(this).val();
                     const deliverySelect = $(this).closest('.d-flex.flex-column').find('.ship-delivery-select');
@@ -624,7 +633,6 @@
                     
                     deliverySelect.trigger('change.select2');
 
-                    // 単価の非同期フェッチ（まだ取得していなければ）
                     if (newCustId && !currentCustomerPrices[newCustId]) {
                         try {
                             currentCustomerPrices[newCustId] = await callGAS('getCustomerSpecificPrices', newCustId);
@@ -684,7 +692,7 @@
 
                 rows.forEach(row => {
                     const rowTemp = row.dataset.tempType;
-                    const rowDate = row.dataset.deliveryDate; 
+                    const rowDate = row.dataset.shipDate; 
 
                     const tempMatch = (currentTempFilter === 'all' || rowTemp === currentTempFilter);
                     
@@ -732,67 +740,68 @@
             recalcShippingRow(qtyInput, true);
         }
 
-        // ★変更: 商品変更時に過去の取引単価を優先するように改修
         async function onShipProductChange(select) {
             const productId = $(select).val();
             const tr = select.closest('tr');
             const product = select2Data.find(p => String(p.id) === String(productId));
             
+            const isInit = select.dataset.init === "1";
+            select.dataset.init = "0"; 
+            
             if (product) {
-                // 選択されている取引先IDを取得
-                const accordionItem = tr.closest('.accordion-item');
-                const custId = accordionItem ? $(accordionItem).find('.ship-cust-select').val() : null;
-                
-                let applyPrice = product.price;
+                if (!isInit) {
+                    const accordionItem = tr.closest('.accordion-item');
+                    const custId = accordionItem ? $(accordionItem).find('.ship-cust-select').val() : null;
+                    
+                    let applyPrice = product.price;
 
-                if (custId) {
-                    // もしキャッシュになければ非同期で取得
-                    if (!currentCustomerPrices[custId]) {
-                        try {
-                            currentCustomerPrices[custId] = await callGAS('getCustomerSpecificPrices', custId);
-                        } catch (e) {
-                            currentCustomerPrices[custId] = {};
+                    if (custId) {
+                        if (!currentCustomerPrices[custId]) {
+                            try {
+                                currentCustomerPrices[custId] = await callGAS('getCustomerSpecificPrices', custId);
+                            } catch (e) {
+                                currentCustomerPrices[custId] = {};
+                            }
+                        }
+                        const custPrices = currentCustomerPrices[custId] || {};
+                        if (custPrices[productId] !== undefined && custPrices[productId] !== null) {
+                            applyPrice = custPrices[productId];
                         }
                     }
-                    // 過去の取引単価があれば、標準マスタ価格より優先する
-                    const custPrices = currentCustomerPrices[custId] || {};
-                    if (custPrices[productId] !== undefined && custPrices[productId] !== null) {
-                        applyPrice = custPrices[productId];
-                    }
+
+                    tr.querySelector('.ship-price').value = applyPrice;
+                    tr.querySelector('.ship-case').value = product.caseQty;
+                    tr.querySelector('.ship-gosu').value = product.gosu;
+                    tr.querySelector('.ship-standard').value = product.standard || '';
+
+                    const orderUnitInput = tr.querySelector('.ship-order-unit');
+                    if (orderUnitInput) orderUnitInput.value = product.tradeUnitName || '';
                 }
-
-                // 特定した単価をセット
-                tr.querySelector('.ship-price').value = applyPrice;
-
-                tr.querySelector('.ship-case').value = product.caseQty;
-                tr.querySelector('.ship-gosu').value = product.gosu;
-                tr.querySelector('.ship-standard').value = product.standard || '';
-
-                const orderUnitInput = tr.querySelector('.ship-order-unit');
-                if (orderUnitInput) orderUnitInput.value = product.tradeUnitName || '';
 
                 const unitSelect = tr.querySelector('.ship-unit');
-                unitSelect.innerHTML = '';
+                const currentSelectedUnit = isInit ? unitSelect.value : null;
 
-                if(product.unitMap && Object.keys(product.unitMap).length > 0) {
-                    Object.keys(product.unitMap).forEach(unitName => {
+                if (!isInit) {
+                    unitSelect.innerHTML = '';
+                    if(product.unitMap && Object.keys(product.unitMap).length > 0) {
+                        Object.keys(product.unitMap).forEach(unitName => {
+                            const option = document.createElement('option');
+                            const unitCode = getUnitCode(unitName);
+                            option.value = unitCode;
+                            option.textContent = unitName;
+                            if(String(unitCode) === String(product.tradeUnitCode)) option.selected = true;
+                            unitSelect.appendChild(option);
+                        });
+                    } else {
                         const option = document.createElement('option');
-                        const unitCode = getUnitCode(unitName);
+                        const unitCode = getUnitCode(product.tradeUnitName || product.unit || '');
                         option.value = unitCode;
-                        option.textContent = unitName;
-                        if(String(unitCode) === String(product.tradeUnitCode)) option.selected = true;
+                        option.textContent = product.tradeUnitName || product.unit || '';
+                        option.selected = true;
                         unitSelect.appendChild(option);
-                    });
-                } else {
-                    const option = document.createElement('option');
-                    const unitCode = getUnitCode(product.tradeUnitName || product.unit || '');
-                    option.value = unitCode;
-                    option.textContent = product.tradeUnitName || product.unit || '';
-                    option.selected = true;
-                    unitSelect.appendChild(option);
+                    }
+                    unitSelect.setAttribute('data-prev-unit', unitSelect.value);
                 }
-
-                unitSelect.setAttribute('data-prev-unit', unitSelect.value);
 
                 tr.dataset.tempType = product.tempType;
                 if (product.tempType === 'frozen') {
@@ -890,7 +899,8 @@
         function addNewShippingRow(btn, parentId) {
             const tbody = btn.closest('.accordion-body').querySelector('tbody');
             const rowHtml = `
-                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" data-delivery-date="${currentDateFilter || defaultDeliveryDate}"
+                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" 
+                    data-ship-date="${currentDateFilter || defaultShipDate}" data-delivery-date="${currentDateFilter || defaultDeliveryDate}"
                     data-kg="0" data-shipping-qty="0" data-order-qty="0" data-order-unit="" data-billing-qty="0">
                     <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select-new" onchange="onShipProductChange(this)"><option></option></select></div></td>
                     <td><input type="text" class="form-control form-control-sm ship-standard" placeholder="規格"></td>
@@ -899,8 +909,8 @@
                     <td><input type="number" class="form-control form-control-sm ship-kg" value="0" style="width:60px; background-color:#e9ecef;" readonly tabindex="-1"></td>
                     <td><select class="form-select form-select-sm ship-unit" data-prev-unit="" onchange="onShipUnitChange(this)"></select></td>
                     <td><input type="number" class="form-control form-control-sm ship-shipping-qty" value="0" style="width:70px;" oninput="this.dataset.manual='1'"></td>
-                    <td><input type="date" class="form-control form-control-sm ship-item-sdate" value="${defaultShipDate}"></td>
-                    <td><input type="date" class="form-control form-control-sm ship-item-date" value="${currentDateFilter || defaultDeliveryDate}"></td>
+                    <td><input type="date" class="form-control form-control-sm ship-item-sdate" value="${currentDateFilter || defaultShipDate}"></td>
+                    <td><input type="date" class="form-control form-control-sm ship-item-date" value="${defaultDeliveryDate}"></td>
                     
                     <td><input type="number" class="form-control form-control-sm ship-price" value="0" onchange="recalcShippingRow(this, false)" style="width:70px;"></td>
                     
@@ -999,7 +1009,8 @@
             return color;
         }
 
-        async function deleteOrder(detailId, orderId) {
+        // ★変更：削除後、画面全体をリロードせずに見た目だけ消す
+        async function deleteOrder(detailId, orderId, btn) {
             const result = await Swal.fire({
                 title: '削除しますか？',
                 text: '本当にこの明細を削除しますか？',
@@ -1011,9 +1022,18 @@
             if(!result.isConfirmed) return;
 
             showLoading(true);
-            try { await callGAS('deleteOrder', detailId, orderId); loadShippingData(); } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
+            try { 
+                await callGAS('deleteOrder', detailId, orderId); 
+                btn.closest('tr').remove();
+                showToast('明細を削除しました', 'success');
+            } catch(e) { 
+                Swal.fire('エラー', e.message, 'error'); 
+            } finally { 
+                showLoading(false); 
+            }
         }
 
+        // ★変更：保存後、画面全体をリロードせずにバッジだけ更新する
         async function confirmOrder(btn, customerId, date) {
             const itemEl = btn.closest('.accordion-item');
             const newCustomerId = $(itemEl).find('.ship-cust-select').val();
@@ -1078,7 +1098,16 @@
                     newCustomerId, newCustomerName, newDeliveryDestination, newCarrierName,
                     items 
                 }); 
-                loadShippingData(); 
+                
+                showToast('保存が完了しました', 'success');
+                
+                const headerBadge = itemEl.querySelector('.accordion-header .badge.bg-warning');
+                if (headerBadge) {
+                    headerBadge.className = 'badge bg-success';
+                    headerBadge.textContent = '確定済み';
+                }
+                itemEl.dataset.status = 'confirmed';
+                
             } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
         }
 
@@ -1156,35 +1185,6 @@
                 Swal.fire('完了', res.message, 'success');
                 loadShippingData(); 
             } catch(e) { Swal.fire('出力エラー', e.message, 'error'); } finally { showLoading(false); }
-        }
-        
-        async function generateShippingInstructions() {
-            const targets = [];
-            document.querySelectorAll('.print-select:checked').forEach(cb => {
-                targets.push({ customerId: cb.dataset.customerId, orderDate: cb.dataset.orderDate });
-            });
-            if (targets.length === 0) return Swal.fire('注意', '対象の注文を選択してください', 'warning');
-
-            const result = await Swal.fire({
-                title: '出荷指示書作成',
-                text: `出荷指示書のシートを開きますか？`,
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: '開く',
-                cancelButtonText: 'キャンセル'
-            });
-            if(!result.isConfirmed) return;
-
-            showLoading(true);
-            try {
-                const res = await callGAS('generateShippingInstructions', targets);
-                
-                window.open(res.url, '_blank');
-                
-                document.querySelectorAll('.print-select:checked').forEach(cb => cb.checked = false);
-                toggleBatchAction();
-                
-            } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
         }
 
         function importCsv() {
