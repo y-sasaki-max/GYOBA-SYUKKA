@@ -1,12 +1,17 @@
-// --- 設定: データ用スプレッドシート ---
-const SPREADSHEET_ID = '1TpkECkY_JUu_g7SogBTz1yjG7PusBn_-vqKk_UJf0S4'; 
+// --- 設定: データ用スプレッドシート（マスタ） ---
+const MASTER_SS_ID = '1TpkECkY_JUu_g7SogBTz1yjG7PusBn_-vqKk_UJf0S4'; 
 const SHEET_CUSTOMER = '顧客マスタ'; 
 const SHEET_PRODUCT = '商品マスタ';
 const SHEET_CARRIER_MASTER = '配送会社マスタ';
-const SHEET_STOCK = '品目倉庫別在庫'; // ←追加: 倉庫在庫シート
+const SHEET_STOCK = '品目倉庫別在庫'; 
 const SHEET_UNIT_MASTER = '単位マスタ';
+const SHEET_DELIVERY_MASTER = '納入先マスタ'; 
+const SHEET_CUSTOMER_PRICE = '取引先別単価マスタ'; // ←新設
+
+// --- 設定: データ用スプレッドシート（トランザクション） ---
+const TRANSACTION_SS_ID = '15Z3DsmG1K0YkYp-v09W-71EHesHoS6IOQIgVSSzTy-0';
 const SHEET_ORDER_PARENT = '注文履歴_親';
-const SHEET_ORDER_CHILD = '注文履歴_子'; 
+const SHEET_ORDER_CHILD = '注文履歴_子';
 
 const CACHE_KEY = 'preprocessed_order_data_v36';
 
@@ -16,10 +21,6 @@ const SHEET_TEMPLATE_INVOICE = '送り状';
 const SHEET_TEMPLATE_DELIVERY = '納品書';
 const SHEET_TEMPLATE_INSTRUCTION = '出荷指示書';
 
-// --- 設定: 納入先台帳用スプレッドシート ---
-const DELIVERY_SS_ID = '1TpkECkY_JUu_g7SogBTz1yjG7PusBn_-vqKk_UJf0S4';
-const SHEET_DELIVERY_MASTER = '納入先マスタ';
-
 function doGet() {
   return HtmlService.createTemplateFromFile('index').evaluate()
       .setTitle('受注管理システム')
@@ -27,7 +28,7 @@ function doGet() {
 }
 
 // --- ヘルパー関数 ---
-function getSheetDataAsObjects_(sheetName, spreadSheetId = SPREADSHEET_ID) {
+function getSheetDataAsObjects_(sheetName, spreadSheetId = MASTER_SS_ID) {
   try {
     const sheet = SpreadsheetApp.openById(spreadSheetId).getSheetByName(sheetName);
     if (!sheet) return [];
@@ -137,7 +138,7 @@ function getInitialDates() {
 function getAllCustomers() {
   const customers = getSheetDataAsObjects_(SHEET_CUSTOMER);
   const carriers = getSheetDataAsObjects_(SHEET_CARRIER_MASTER);
-  const deliveries = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER, DELIVERY_SS_ID);
+  const deliveries = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER);
   const carrierNameMap = new Map();
   carriers.forEach(c => {
     if (c.配送会社名 && c.配送会社コード) {
@@ -227,7 +228,7 @@ function getAllUnitMaster() {
 }
 
 function getAllDeliveryDestinations() {
-  const destinations = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER, DELIVERY_SS_ID);
+  const destinations = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER);
   return destinations.map(d => ({
     id: d.納入先コード,
     name: d.納入先名1,
@@ -237,8 +238,8 @@ function getAllDeliveryDestinations() {
 
 function getDashboardData() {
   const todayStr = getTodayString_();
-  const parents = getSheetDataAsObjects_(SHEET_ORDER_PARENT);
-  const children = getSheetDataAsObjects_(SHEET_ORDER_CHILD);
+  const parents = getSheetDataAsObjects_(SHEET_ORDER_PARENT, TRANSACTION_SS_ID);
+  const children = getSheetDataAsObjects_(SHEET_ORDER_CHILD, TRANSACTION_SS_ID);
   const todaysParents = parents.filter(p => {
     if(!p.注文日) return false;
     const pDateStr = parseYMDString_(p.注文日); 
@@ -266,13 +267,13 @@ function getRecentOrders() {
     dateStrings.push(Utilities.formatDate(d, 'JST', 'yyyy-MM-dd'));
   }
   
-  const parents = getSheetDataAsObjects_(SHEET_ORDER_PARENT);
-  const children = getSheetDataAsObjects_(SHEET_ORDER_CHILD);
+  const parents = getSheetDataAsObjects_(SHEET_ORDER_PARENT, TRANSACTION_SS_ID);
+  const children = getSheetDataAsObjects_(SHEET_ORDER_CHILD, TRANSACTION_SS_ID);
   const products = getSheetDataAsObjects_(SHEET_PRODUCT);
   
   const carriers = getSheetDataAsObjects_(SHEET_CARRIER_MASTER);
   const carrierMap = new Map(carriers.map(c => [String(c.配送会社コード), c.配送会社名]));
-  const deliveries = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER, DELIVERY_SS_ID);
+  const deliveries = getSheetDataAsObjects_(SHEET_DELIVERY_MASTER);
   const deliveryMap = new Map(deliveries.map(d => [String(d.納入先コード), d.納入先名1]));
   const productInfoMap = new Map(products.map(p => [
     String(p.品目コード), 
@@ -349,8 +350,8 @@ function getRecentOrders() {
         orderUnit: c.注文時単位 || c.単位コード || pInfo.unit,
         kg: c.kg || 0,
         shippingQty: c.出荷数 || 0,
-        warehouseCode: c.倉庫コード || '', // ←追加
-        lotNumber: c.ロット番号 || ''      // ←追加
+        warehouseCode: c.倉庫コード || '', 
+        lotNumber: c.ロット番号 || ''      
       };
     });
     if (hasRecentItem) {
@@ -378,7 +379,7 @@ function getRecentOrders() {
 }
 
 function deleteOrder(detailId, orderId) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(TRANSACTION_SS_ID);
   const childSheet = ss.getSheetByName(SHEET_ORDER_CHILD);
   const data = childSheet.getDataRange().getValues();
   
@@ -402,7 +403,7 @@ function deleteOrder(detailId, orderId) {
 }
 
 function checkAndDeleteEmptyParent_(orderId) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(TRANSACTION_SS_ID);
   const childSheet = ss.getSheetByName(SHEET_ORDER_CHILD);
   const parentSheet = ss.getSheetByName(SHEET_ORDER_PARENT);
   
@@ -422,7 +423,7 @@ function checkAndDeleteEmptyParent_(orderId) {
 }
 
 function updateAndConfirmOrder(data) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(TRANSACTION_SS_ID);
   const parentSheet = ss.getSheetByName(SHEET_ORDER_PARENT);
   const childSheet = ss.getSheetByName(SHEET_ORDER_CHILD);
 
@@ -523,8 +524,8 @@ function updateAndConfirmOrder(data) {
       orderQty: cHeaders.indexOf('注文時数量'),
       kg: cHeaders.indexOf('kg'),
       shippingQty: cHeaders.indexOf('出荷数'),
-      warehouseCode: cHeaders.indexOf('倉庫コード'), // ←追加
-      lotNumber: cHeaders.indexOf('ロット番号')      // ←追加
+      warehouseCode: cHeaders.indexOf('倉庫コード'), 
+      lotNumber: cHeaders.indexOf('ロット番号')     
     };
     const detailIdMap = new Map();
     for(let i=1; i<cData.length; i++) {
@@ -544,7 +545,7 @@ function updateAndConfirmOrder(data) {
       const finalCaseCount = Number(item.caseCount) || 0;
       const finalQuantity = Number(item.quantity) || 0; // 請求用数量
 
-      const unitPrice = pInfo.price;
+      const unitPrice = item.price; // ★ここでは既に index.html から送られてくる確定単価を使用
       const amount = finalQuantity * unitPrice; 
 
       const remarks = item.newRemarks || item.remarks;
@@ -575,11 +576,10 @@ function updateAndConfirmOrder(data) {
         if(cIdx.orderQty !== -1) childSheet.getRange(rowNum, cIdx.orderQty + 1).setValue(item.orderQty || 0);
         if(cIdx.kg !== -1) childSheet.getRange(rowNum, cIdx.kg + 1).setValue(item.kg || 0);
         if(cIdx.shippingQty !== -1) childSheet.getRange(rowNum, cIdx.shippingQty + 1).setValue(item.shippingQty || 0);
-        if(cIdx.warehouseCode !== -1) childSheet.getRange(rowNum, cIdx.warehouseCode + 1).setValue(item.warehouseCode || ''); // ←追加
-        if(cIdx.lotNumber !== -1) childSheet.getRange(rowNum, cIdx.lotNumber + 1).setValue(item.lotNumber || ''); // ←追加
+        if(cIdx.warehouseCode !== -1) childSheet.getRange(rowNum, cIdx.warehouseCode + 1).setValue(item.warehouseCode || ''); 
+        if(cIdx.lotNumber !== -1) childSheet.getRange(rowNum, cIdx.lotNumber + 1).setValue(item.lotNumber || '');
       } else {
         const newDetailId = generateRandomId_();
-        // ★ご指定の完全なカラム順番（27列）
         const row = [
           newDetailId,          // 1. 内訳ID
           targetOrderId,        // 2. 注文ID
@@ -592,8 +592,8 @@ function updateAndConfirmOrder(data) {
           pInfo.caseQty,        // 9. 入数
           pInfo.gosu,           // 10. 合数
           finalCaseCount,       // 11. 箱数
-          item.warehouseCode || '', // 12. 倉庫コード (変更)
-          item.lotNumber || '',     // 13. ロット番号 (変更)
+          item.warehouseCode || '', // 12. 倉庫コード
+          item.lotNumber || '',     // 13. ロット番号
           finalQuantity,        // 14. 数量
           unitPrice,            // 15. 単価
           amount,               // 16. 金額
@@ -616,6 +616,9 @@ function updateAndConfirmOrder(data) {
       const startRow = childSheet.getLastRow() + 1;
       childSheet.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
     }
+
+    // ★取引先別単価マスタを更新
+    updateCustomerPriceMaster_(data.newCustomerId || parentCustId, data.items);
 
     CacheService.getScriptCache().remove(CACHE_KEY);
     return { status: 'success' };
@@ -740,15 +743,14 @@ function generateBatchPdfs(targetList) {
     const generatedSheetIds = [];
     const shipmentsArray = Object.values(groupedShipments);
     const processedOrderIds = [];
-
     // 単位マスタ読み込み（単位コード→単位名変換用）
     const unitMasterRows = getSheetDataAsObjects_(SHEET_UNIT_MASTER);
     const unitCodeToName = new Map(unitMasterRows.map(u => [
       String(u['単位コード'] ?? u[Object.keys(u)[0]] ?? ''),
       String(u['単位名']   ?? u[Object.keys(u)[1]] ?? '')
     ]));
-
-    const ssMain = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    const ssMain = SpreadsheetApp.openById(TRANSACTION_SS_ID);
     const childSheetMain = ssMain.getSheetByName(SHEET_ORDER_CHILD);
     const cData = childSheetMain.getDataRange().getValues();
     const slipNoIdx = cData[0].indexOf('伝票番号');
@@ -824,7 +826,7 @@ function generateBatchPdfs(targetList) {
 }
 
 function updateSlipNumbersAndFlags_(slipUpdates, orderIds) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(TRANSACTION_SS_ID);
   
   const parentSheet = ss.getSheetByName(SHEET_ORDER_PARENT);
   const pData = parentSheet.getDataRange().getValues();
@@ -863,13 +865,10 @@ function updateSlipNumbersAndFlags_(slipUpdates, orderIds) {
 function fillInvoiceSheet_(sheet, shipment, unitCodeToName) {
   sheet.getRange('A7').setValue(shipment.customerAddress || '');
   sheet.getRange('A9').setValue(shipment.customerName + ' 御中');
-
   sheet.getRange('D3').setValue(shipment.shipDate || getTodayString_());
   sheet.getRange('C4').setValue(shipment.deliveryDate);
   sheet.getRange('I1').setValue(shipment.slipNumber || '');
   sheet.getRange('B28').setValue(shipment.carrierName || '');
-
-  // 明細: A=品目名, B=規格, C=単価, D=入数, E=合数, F=箱数, G=数量, H=単位名, I=摘要/備考
   sheet.getRange(13, 1, 14, 9).clearContent();
   const rows = shipment.items.map(item => {
     const unitName = (unitCodeToName && unitCodeToName.get(String(item.unit || ''))) || item.unit || '';
@@ -965,7 +964,7 @@ function getBlobFromWholeSs_(ss, filename) {
 }
 
 function importDeliveryMasterCsv(csvContent) {
-  const ss = SpreadsheetApp.openById(DELIVERY_SS_ID);
+  const ss = SpreadsheetApp.openById(MASTER_SS_ID);
   let sheet = ss.getSheetByName(SHEET_DELIVERY_MASTER);
   if (!sheet) sheet = ss.insertSheet(SHEET_DELIVERY_MASTER);
   let csvData;
@@ -1011,7 +1010,7 @@ function generateShippingInstructions(targetList) {
 
 // --- 在庫引当（フロント連携API） ---
 function getAvailableStocks(productId) {
-  const stocks = getSheetDataAsObjects_(SHEET_STOCK);
+  const stocks = getSheetDataAsObjects_(SHEET_STOCK, MASTER_SS_ID);
   // 指定された品目コードと一致する在庫情報を抽出
   return stocks.filter(s => String(s.品目コード) === String(productId)).map(s => {
     let expDate = '';
@@ -1026,5 +1025,56 @@ function getAvailableStocks(productId) {
       stockQty: s.在庫数量 || 0,
       unit: s.単位 || ''
     };
+  });
+}
+
+// --- 取引先別単価マスタ用API ---
+function getCustomerSpecificPrices(customerId) {
+  const data = getSheetDataAsObjects_(SHEET_CUSTOMER_PRICE, MASTER_SS_ID);
+  const prices = {};
+  data.forEach(row => {
+    if (String(row['取引先コード']) === String(customerId)) {
+      prices[String(row['品目コード'])] = Number(row['最新単価']);
+    }
+  });
+  return prices;
+}
+
+function updateCustomerPriceMaster_(customerId, items) {
+  const sheet = SpreadsheetApp.openById(MASTER_SS_ID).getSheetByName(SHEET_CUSTOMER_PRICE);
+  if (!sheet) return; 
+
+  const data = sheet.getDataRange().getValues();
+  const rowMap = new Map();
+  
+  if (data.length > 1) {
+    const headers = data[0];
+    const custIdx = headers.indexOf('取引先コード');
+    const prodIdx = headers.indexOf('品目コード');
+    if(custIdx !== -1 && prodIdx !== -1) {
+        for (let i = 1; i < data.length; i++) {
+          const key = `${data[i][custIdx]}_${data[i][prodIdx]}`;
+          rowMap.set(key, i + 1);
+        }
+    }
+  }
+
+  const today = Utilities.formatDate(new Date(), 'JST', 'yyyy-MM-dd');
+  
+  items.forEach(item => {
+    if (!item.productId) return;
+    const key = `${customerId}_${item.productId}`;
+    const unitPrice = item.price; // 確定した単価
+    
+    if (rowMap.has(key)) {
+      // 既存があれば上書き
+      const rowNum = rowMap.get(key);
+      sheet.getRange(rowNum, 3).setValue(unitPrice);
+      sheet.getRange(rowNum, 4).setValue(today);
+    } else {
+      // なければ新規追加
+      sheet.appendRow([customerId, item.productId, unitPrice, today]);
+      rowMap.set(key, sheet.getLastRow()); // 追加した行をマップに登録
+    }
   });
 }
