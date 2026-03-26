@@ -37,7 +37,6 @@
         .ship-price { width: 90px !important; } 
         .print-check-wrapper { transform: scale(1.3); margin-right: 15px; }
         
-        /* 変更: 商品選択欄にフォーカスを当てた際に幅を広げる */
         .ship-product-select-container { 
             width: 220px; 
             min-width: 200px; 
@@ -47,7 +46,6 @@
             width: 350px; 
         }
 
-        /* 変更: 規格入力欄にフォーカスを当てた際に幅を広げる */
         .ship-standard { 
             min-width: 100px; 
             transition: min-width 0.3s ease; 
@@ -260,6 +258,7 @@
         let currentTempFilter = 'all';
         let currentStatusFilter = 'all';
         let currentDateFilter = ''; 
+        let currentCustomerPrices = {}; // ★追加: 取引先ごとの単価キャッシュ
 
         // 丸め関数（小数点第1位を残す四捨五入）
         function round1st(x) {
@@ -442,7 +441,6 @@
                         if(prodInfo && prodInfo.unitMap) {
                             Object.keys(prodInfo.unitMap).forEach(unitName => {
                                 const unitCode = getUnitCode(unitName);
-                                // DBが旧形式（単位名）・新形式（単位コード）どちらでも選択できるよう両方照合
                                 const isSelected = (String(unitCode) === String(item.unit) || unitName === String(item.unit)) ? 'selected' : '';
                                 unitOptions += `<option value="${unitCode}" ${isSelected}>${unitName}</option>`;
                             });
@@ -611,7 +609,8 @@
                 $('.ship-carrier-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 $('.ship-delivery-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 
-                $('.ship-cust-select').on('change', function() {
+                // ★追加・変更: 顧客変更時に過去の個別単価マスタを取得
+                $('.ship-cust-select').on('change', async function() {
                     const newCustId = $(this).val();
                     const deliverySelect = $(this).closest('.d-flex.flex-column').find('.ship-delivery-select');
                     
@@ -624,6 +623,16 @@
                     });
                     
                     deliverySelect.trigger('change.select2');
+
+                    // 単価の非同期フェッチ（まだ取得していなければ）
+                    if (newCustId && !currentCustomerPrices[newCustId]) {
+                        try {
+                            currentCustomerPrices[newCustId] = await callGAS('getCustomerSpecificPrices', newCustId);
+                        } catch (e) {
+                            console.error("個別単価の取得に失敗しました", e);
+                            currentCustomerPrices[newCustId] = {};
+                        }
+                    }
                 });
 
                 $('.ship-product-select').select2({ 
@@ -716,7 +725,6 @@
             const newUnit = selectEl.value;
             selectEl.setAttribute('data-prev-unit', newUnit);
 
-            // 単位変更時は出荷数の手動フラグをリセットして強制再計算
             const shippingQtyInput = tr.querySelector('.ship-shipping-qty');
             if (shippingQtyInput) delete shippingQtyInput.dataset.manual;
 
@@ -724,17 +732,42 @@
             recalcShippingRow(qtyInput, true);
         }
 
-        function onShipProductChange(select) {
+        // ★変更: 商品変更時に過去の取引単価を優先するように改修
+        async function onShipProductChange(select) {
             const productId = $(select).val();
             const tr = select.closest('tr');
             const product = select2Data.find(p => String(p.id) === String(productId));
+            
             if (product) {
-                tr.querySelector('.ship-price').value = product.price;
+                // 選択されている取引先IDを取得
+                const accordionItem = tr.closest('.accordion-item');
+                const custId = accordionItem ? $(accordionItem).find('.ship-cust-select').val() : null;
+                
+                let applyPrice = product.price;
+
+                if (custId) {
+                    // もしキャッシュになければ非同期で取得
+                    if (!currentCustomerPrices[custId]) {
+                        try {
+                            currentCustomerPrices[custId] = await callGAS('getCustomerSpecificPrices', custId);
+                        } catch (e) {
+                            currentCustomerPrices[custId] = {};
+                        }
+                    }
+                    // 過去の取引単価があれば、標準マスタ価格より優先する
+                    const custPrices = currentCustomerPrices[custId] || {};
+                    if (custPrices[productId] !== undefined && custPrices[productId] !== null) {
+                        applyPrice = custPrices[productId];
+                    }
+                }
+
+                // 特定した単価をセット
+                tr.querySelector('.ship-price').value = applyPrice;
+
                 tr.querySelector('.ship-case').value = product.caseQty;
                 tr.querySelector('.ship-gosu').value = product.gosu;
                 tr.querySelector('.ship-standard').value = product.standard || '';
 
-                // 注文時単位名を取引単位名で初期セット
                 const orderUnitInput = tr.querySelector('.ship-order-unit');
                 if (orderUnitInput) orderUnitInput.value = product.tradeUnitName || '';
 
@@ -747,7 +780,6 @@
                         const unitCode = getUnitCode(unitName);
                         option.value = unitCode;
                         option.textContent = unitName;
-                        // 取引単位コードと一致する選択肢をデフォルト選択
                         if(String(unitCode) === String(product.tradeUnitCode)) option.selected = true;
                         unitSelect.appendChild(option);
                     });
@@ -762,7 +794,6 @@
 
                 unitSelect.setAttribute('data-prev-unit', unitSelect.value);
 
-                // tempTypeの更新と引当UIの切り替え
                 tr.dataset.tempType = product.tempType;
                 if (product.tempType === 'frozen') {
                     tr.querySelector('.stock-action-area').style.display = 'block';
@@ -782,13 +813,11 @@
             
             const price = parseFloat(tr.querySelector('.ship-price').value) || 0; 
             
-            // 注文時単位は ship-order-unit（単位名）から取得、なければ ship-unit（単位コード）を名前に変換して使用
             const orderUnitInput = tr.querySelector('.ship-order-unit');
             const orderUnit = orderUnitInput && orderUnitInput.value
                 ? orderUnitInput.value
                 : getUnitName(tr.querySelector('.ship-unit').value);
             
-            // 計算のベースとなる数量は ship-order-qty から取得
             const orderQtyInput = tr.querySelector('.ship-order-qty');
             const orderQty = orderQtyInput ? (parseFloat(orderQtyInput.value) || 0) : (parseFloat(tr.querySelector('.ship-qty').value) || 0);
             
@@ -797,38 +826,29 @@
             
             if (!product || !product.unitMap) return;
 
-            // Phase 1: 受注単位からの絶対値正規化 (Order to Absolute Base)
             const factorOrder = product.unitMap[orderUnit];
             
             if (factorOrder === undefined) {
                 console.warn(`Missing Unit Factor: 単位 '${orderUnit}' の換算係数が存在しません。`);
-                return; // 計算アボート
+                return; 
             }
             
-            // 絶対重量(kg)の算出
             const kg = orderQty * factorOrder;
-
-            // Phase 2: 後続ドメインへの分配計算 (Absolute Base to Domains)
-            
-            // 2-1. 請求・売上ドメイン計算
             const billingQty = kg; 
             const amount = billingQty * price;
             
-            // 2-2. 物流・出荷ドメイン計算（逆算・端数丸め処理）
             let shippingQty = 0;
             const factorZaiko = product.unitMap[product.zaikoUnitName];
             if (factorZaiko) {
                 shippingQty = round1st(kg / factorZaiko);
             }
             
-            // 箱数の算出 (優先順位：単箱 > c/s > 箱)
             let boxQty = null;
             const factorBox = product.unitMap['単箱'] || product.unitMap['c/s'] || product.unitMap['箱'];
             if (factorBox) {
                 boxQty = round1st(kg / factorBox);
             }
 
-            // --- UIとデータへの反映 ---
             tr.querySelector('.ship-total').textContent = `¥${Math.floor(amount).toLocaleString()}`;
             
             const caseCountInput = tr.querySelector('.ship-case-count');
@@ -838,7 +858,6 @@
                 caseCountInput.value = ''; 
             }
             
-            // 新設したフィールドにも値をセット
             const kgInput = tr.querySelector('.ship-kg');
             if (kgInput) kgInput.value = round1st(kg);
 
@@ -852,7 +871,6 @@
                 qtyInput.value = billingQty;
             }
 
-            // データ永続化のために tr 要素のデータセットに保持
             tr.dataset.kg = kg;
             tr.dataset.billingQty = billingQty;
             tr.dataset.shippingQty = shippingQty;
@@ -1031,7 +1049,7 @@
                     kg: kgInput ? (parseFloat(kgInput.value) || 0) : (parseFloat(tr.dataset.kg) || 0),
                     shippingQty: shippingQtyInput ? (parseFloat(shippingQtyInput.value) || 0) : (parseFloat(tr.dataset.shippingQty) || 0),
                     caseCount: parseFloat(tr.querySelector('.ship-case-count').value) || 0,
-                    quantity: qtyInput ? (parseFloat(qtyInput.value) || 0) : (parseFloat(tr.dataset.billingQty) || 0), // 請求データ層の数量 = kg
+                    quantity: qtyInput ? (parseFloat(qtyInput.value) || 0) : (parseFloat(tr.dataset.billingQty) || 0), 
 
                     awaseId: tr.dataset.awaseId || '', 
                     isAwase: (!!tr.dataset.awaseId), 
