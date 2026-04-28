@@ -15,27 +15,21 @@
         .page { display: none; }
         .page.active { display: block; }
 
-        /* ★変更：画面全体を覆うローディングを廃止し、左下の小さな通知に変更 */
         .loading-spinner {
             display: none;
             position: fixed;
-            bottom: 20px;
-            left: 20px;
-            width: auto;
-            height: auto;
-            background: rgba(255, 255, 255, 0.95); 
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.85); 
             z-index: 9999;
-            flex-direction: row;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            padding: 12px 24px;
-            border-radius: 50px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-            border: 1px solid #dee2e6;
-            pointer-events: none; /* マウス操作を貫通させる（裏のボタンを押せる） */
         }
-        .loading-text { margin-top: 0; margin-left: 12px; font-weight: bold; color: #0d6efd; font-size: 1rem; }
-        .spinner-border { width: 1.5rem; height: 1.5rem; border-width: 0.2em; }
+        .loading-text { margin-top: 15px; font-weight: bold; color: #0d6efd; font-size: 1.1rem; }
+        .spinner-border { width: 3rem; height: 3rem; }
         
         .alert-customer-item { transition: background-color 0.2s; }
         .alert-customer-item:hover { background-color: #fff3cd; }
@@ -43,6 +37,7 @@
         .ship-price { width: 90px !important; } 
         .print-check-wrapper { transform: scale(1.3); margin-right: 15px; }
         
+        /* 変更: 商品選択欄にフォーカスを当てた際に幅を広げる */
         .ship-product-select-container { 
             width: 220px; 
             min-width: 200px; 
@@ -52,6 +47,7 @@
             width: 350px; 
         }
 
+        /* 変更: 規格入力欄にフォーカスを当てた際に幅を広げる */
         .ship-standard { 
             min-width: 100px; 
             transition: min-width 0.3s ease; 
@@ -63,6 +59,7 @@
         }
 
         .ship-unit { min-width: 70px; }
+        .ship-ship-unit { min-width: 70px; }
         .ship-rem { min-width: 80px; }
         .select2-results__option { border-bottom: 1px solid #f0f0f0; padding-top: 6px; padding-bottom: 6px; }
         
@@ -104,10 +101,16 @@
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
         </div>
-        <div class="loading-text">通信中...</div>
+        <div class="loading-text">読み込み中...</div>
     </div>
 
     <div id="toast-container"></div>
+
+    <div style="position: fixed; top: 70px; right: 20px; z-index: 1050; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+        <span id="loading-status-badge" class="badge bg-secondary p-2" style="font-size: 0.9rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 20px; display: none;"></span>
+        <span id="save-status-badge" class="badge bg-success p-2" style="font-size: 0.9rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 20px; display: none;">✅ すべて保存済み</span>
+        <div id="save-error-container" style="max-width: 350px;"></div>
+    </div>
 
     <nav class="navbar navbar-expand-lg navbar-light bg-light sticky-top shadow-sm">
         <div class="container-fluid">
@@ -117,6 +120,7 @@
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('dashboard')">ダッシュボード</a></li>
                     <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('shipping-page')">出荷登録</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('stock-list-page')">在庫一覧</a></li>
                     <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('export-page')">データ管理</a></li>
                 </ul>
             </div>
@@ -127,10 +131,11 @@
         <div id="dashboard" class="page">
             <h3 class="mb-4 border-bottom pb-2">ダッシュボード</h3>
             <div class="row g-3 mb-4">
-                <div class="col-md-3"><div class="card text-center h-100 border-primary"><div class="card-body"><h6 class="text-muted">本日の注文件数</h6><p class="display-6 fw-bold text-primary" id="db-total-orders">0</p></div></div></div>
-                <div class="col-md-3"><div class="card text-center h-100 bg-success text-white"><div class="card-body"><h6>確定済み</h6><p class="display-6 fw-bold" id="db-confirmed-orders">0</p></div></div></div>
-                <div class="col-md-3"><div class="card text-center h-100 bg-warning text-dark"><div class="card-body"><h6>未確定</h6><p class="display-6 fw-bold" id="db-pending-orders">0</p></div></div></div>
-                <div class="col-md-3"><div class="card text-center h-100 border-info"><div class="card-body"><h6 class="text-muted">本日の売上予測</h6><p class="display-6 fw-bold text-info" id="db-total-sales">¥0</p></div></div></div>
+                <div class="col"><div class="card text-center h-100 border-primary"><div class="card-body"><h6 class="text-muted">本日の注文件数</h6><p class="display-6 fw-bold text-primary" id="db-total-orders">0</p></div></div></div>
+                <div class="col"><div class="card text-center h-100 bg-success text-white"><div class="card-body"><h6>確定済み</h6><p class="display-6 fw-bold" id="db-confirmed-orders">0</p></div></div></div>
+                <div class="col"><div class="card text-center h-100 bg-warning text-dark"><div class="card-body"><h6>未確定</h6><p class="display-6 fw-bold" id="db-pending-orders">0</p></div></div></div>
+                <div class="col"><div class="card text-center h-100 border-danger"><div class="card-body"><h6 class="text-muted">本日の出荷件数</h6><p class="display-6 fw-bold text-danger" id="db-ship-count">0</p></div></div></div>
+                <div class="col"><div class="card text-center h-100 border-info"><div class="card-body"><h6 class="text-muted">本日の売上予測</h6><p class="display-6 fw-bold text-info" id="db-total-sales">¥0</p></div></div></div>
             </div>
             <div class="row"><div class="col-12"><div class="card border-warning"><div class="card-header bg-warning text-dark fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>未注文のアラート</div><div class="card-body p-0"><div id="alert-customer-list" class="list-group list-group-flush alert-customer-list"></div></div></div></div></div>
         </div>
@@ -138,12 +143,7 @@
         <div id="shipping-page" class="page">
             <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
                 <h3>出荷登録</h3>
-                <div>
-                    <button class="btn btn-warning btn-sm me-2" onclick="window.open('https://docs.google.com/spreadsheets/d/1GnhQRHvBZ7yL-cgHeaCNDCt8OtM-m09zI060vxw03K8/edit?pli=1&gid=423721715#gid=423721715', '_blank')">
-                        <i class="bi bi-list-check"></i> 出荷指示書を開く
-                    </button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="loadShippingData()"><i class="bi bi-arrow-clockwise"></i> 更新</button>
-                </div>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadShippingData()"><i class="bi bi-arrow-clockwise"></i> 更新</button>
             </div>
 
             <div class="mb-2">
@@ -169,16 +169,123 @@
                 </div>
             </div>
             
+            <div class="d-flex justify-content-end mb-2 gap-2">
+                <button class="btn btn-warning" onclick="generateShippingInstructions()">
+                    <i class="bi bi-list-check"></i> チルド品出荷指示書
+                </button>
+                <button class="btn btn-primary" onclick="generateFrozenShippingInstructions()">
+                    <i class="bi bi-list-check"></i> 冷凍品出荷指示書
+                </button>
+            </div>
+
             <div class="d-flex justify-content-end mb-2 bg-light p-2 rounded border" id="batch-action-area" style="display:none;">
                 <div class="d-flex align-items-center">
                     <span class="me-3 fw-bold"><span id="selected-count">0</span> 件選択中</span>
                     <button class="btn btn-danger" onclick="generateBatchPdfs()">
-                        <i class="bi bi-file-earmark-pdf-fill"></i> 送り状・納品書発行
+                        <i class="bi bi-file-earmark-excel-fill"></i> 送り状・納品書発行
                     </button>
                 </div>
             </div>
 
             <div class="accordion" id="shipping-orders-accordion"></div>
+        </div>
+
+        <div id="stock-list-page" class="page">
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                <h3><i class="bi bi-box-seam me-2"></i>在庫一覧（全ロット）</h3>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadStockList()"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+            </div>
+
+            <!-- フィルターエリア -->
+            <div class="card mb-3 border-0 bg-light">
+                <div class="card-body py-3">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">商品名・コード</label>
+                            <input type="text" id="sl-filter-keyword" class="form-control form-control-sm" placeholder="キーワードで絞り込み" oninput="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">ふりがな（頭文字）</label>
+                            <input type="text" id="sl-filter-kana" class="form-control form-control-sm" placeholder="例：あ、か" oninput="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">規格</label>
+                            <input type="text" id="sl-filter-standard" class="form-control form-control-sm" placeholder="規格" oninput="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">ブランド</label>
+                            <input type="text" id="sl-filter-brand" class="form-control form-control-sm" placeholder="ブランド" oninput="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">ロット番号</label>
+                            <input type="text" id="sl-filter-lot" class="form-control form-control-sm" placeholder="ロット番号" oninput="applyStockFilters()">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">倉庫</label>
+                            <select id="sl-filter-warehouse" class="form-select form-select-sm" onchange="applyStockFilters()">
+                                <option value="">すべて</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">商品区分</label>
+                            <div class="btn-group w-100" role="group" id="sl-temp-filter-group">
+                                <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="setSlTempFilter(this,'all')">すべて</button>
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="setSlTempFilter(this,'chilled')">❄️ チルド</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="setSlTempFilter(this,'frozen')">🧊 冷凍</button>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">賞味期限（開始）</label>
+                            <input type="date" id="sl-filter-exp-from" class="form-control form-control-sm" onchange="applyStockFilters()">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">賞味期限（終了）</label>
+                            <input type="date" id="sl-filter-exp-to" class="form-control form-control-sm" onchange="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">製造日（開始）</label>
+                            <input type="date" id="sl-filter-mfg-from" class="form-control form-control-sm" onchange="applyStockFilters()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">製造日（終了）</label>
+                            <input type="date" id="sl-filter-mfg-to" class="form-control form-control-sm" onchange="applyStockFilters()">
+                        </div>
+                        <div class="col-md-1 d-flex align-items-end">
+                            <button class="btn btn-sm btn-outline-secondary w-100" onclick="clearStockFilters()"><i class="bi bi-x-circle"></i> クリア</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 件数表示 -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted"><span id="sl-result-count">0</span> 件表示中</span>
+                <span id="sl-mfg-date-note" class="small text-muted" style="display:none;"><i class="bi bi-info-circle me-1"></i>製造日は在庫データに含まれる場合のみ表示されます</span>
+            </div>
+
+            <!-- 在庫テーブル -->
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle border" id="sl-stock-table">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th class="small" style="cursor:pointer" onclick="sortStockTable('productId')">商品コード <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small" style="cursor:pointer" onclick="sortStockTable('productName')">商品名 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small">ブランド</th>
+                            <th class="small">規格</th>
+                            <th class="small text-center">区分</th>
+                            <th class="small" style="cursor:pointer" onclick="sortStockTable('warehouseName')">倉庫 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small" style="cursor:pointer" onclick="sortStockTable('lotNumber')">ロット番号 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small" style="cursor:pointer" onclick="sortStockTable('expirationDate')">賞味期限 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small" id="sl-mfg-date-header" style="cursor:pointer;display:none;" onclick="sortStockTable('manufactureDate')">製造日 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small text-end" style="cursor:pointer" onclick="sortStockTable('stockQty')">在庫数量 <i class="bi bi-arrow-down-up text-muted"></i></th>
+                            <th class="small">単位</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sl-stock-tbody">
+                        <tr><td colspan="11" class="text-center text-muted py-4">「更新」ボタンを押してデータを読み込んでください</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div id="export-page" class="page">
@@ -190,7 +297,7 @@
                         <div class="card-body">
                             <form onsubmit="event.preventDefault(); exportDailyCsv();" class="row g-3">
                                 <div class="col-12">
-                                    <label class="form-label">売上日（注文日）</label>
+                                    <label class="form-label">売上日（出荷日）</label>
                                     <input type="date" id="export-target-date" class="form-control" required>
                                 </div>
                                 <div class="col-12 mt-4">
@@ -257,14 +364,17 @@
         let allCarriersCache = [];
         let allDeliveryDestinationsCache = [];
         let allUnitMasterCache = [];
+        let allStockListCache = [];
         let select2Data = [];
         let defaultShipDate = '';
         let defaultDeliveryDate = ''; 
         let currentOrders = [];
         let currentTempFilter = 'all';
         let currentStatusFilter = 'all';
-        let currentDateFilter = ''; 
-        let currentCustomerPrices = {};
+        let currentDateFilter = '';
+        let saveQueueCount = 0;
+        let loadingCount = 0;
+        let cachedOrdersPreload = null;
 
         // 丸め関数（小数点第1位を残す四捨五入）
         function round1st(x) {
@@ -283,24 +393,43 @@
         }
 
         window.onload = () => {
-            showPage('dashboard');
-            
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('export-target-date').value = today;
-
-            callGAS('getAllUnitMaster').then(units => { allUnitMasterCache = units || []; });
-
-            callGAS('getInitialDates').then(dates => {
-                defaultShipDate = dates.shipDate;
-                defaultDeliveryDate = dates.deliveryDate;
-            }).catch(e => {
-                let d1 = new Date(); d1.setDate(d1.getDate() + 1);
-                let d2 = new Date(); d2.setDate(d2.getDate() + 2);
-                defaultShipDate = d1.toISOString().split('T')[0];
-                defaultDeliveryDate = d2.toISOString().split('T')[0];
-            });
-
             initDateFilters();
+
+            // Show dashboard without triggering individual data fetches
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('dashboard').classList.add('active');
+            const dashNavLink = document.querySelector(".nav-link[onclick=\"showPage('dashboard')\"]");
+            if (dashNavLink) dashNavLink.classList.add('active');
+
+            // Single bundled GAS call loads all data at once
+            showLoading(true);
+            callGAS('getAppInitialData').then(data => {
+                allUnitMasterCache = data.units || [];
+                allCustomersCache = data.customers || [];
+                allProductsCache = data.products || [];
+                allCarriersCache = data.carriers || [];
+                allDeliveryDestinationsCache = data.destinations || [];
+                select2Data = (data.products || []).map(pd => ({ id: pd.id, text: pd.name, ...pd }));
+                defaultShipDate = data.dates.shipDate;
+                defaultDeliveryDate = data.dates.deliveryDate;
+                cachedOrdersPreload = data.orders || [];
+                renderDashboard(data.dashboard);
+            }).catch(e => {
+                console.error('初期読み込みエラー:', e);
+                loadDashboardData();
+                callGAS('getAllUnitMaster').then(units => { allUnitMasterCache = units || []; });
+                callGAS('getInitialDates').then(dates => {
+                    defaultShipDate = dates.shipDate;
+                    defaultDeliveryDate = dates.deliveryDate;
+                }).catch(() => {
+                    const d1 = new Date(); d1.setDate(d1.getDate() + 1);
+                    const d2 = new Date(); d2.setDate(d2.getDate() + 2);
+                    defaultShipDate = d1.toISOString().split('T')[0];
+                    defaultDeliveryDate = d2.toISOString().split('T')[0];
+                });
+            }).finally(() => showLoading(false));
         };
 
         function initDateFilters() {
@@ -325,9 +454,15 @@
             }
         }
 
-        function showLoading(show) { 
-            const spinner = document.getElementById('loading-spinner');
-            spinner.style.display = show ? 'flex' : 'none';
+        function showLoading(show) {
+            loadingCount = show ? loadingCount + 1 : Math.max(0, loadingCount - 1);
+            const badge = document.getElementById('loading-status-badge');
+            if (loadingCount > 0) {
+                badge.style.display = '';
+                badge.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 読み込み中...';
+            } else {
+                badge.style.display = 'none';
+            }
         }
 
         function showToast(message, type = 'info') {
@@ -345,6 +480,41 @@
             setTimeout(() => toast.remove(), 5000); 
         }
         
+        function updateSaveStatus() {
+            const badge = document.getElementById('save-status-badge');
+            badge.style.display = '';
+            if (saveQueueCount > 0) {
+                badge.className = 'badge bg-warning text-dark p-2';
+                badge.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status"></span> 保存中: ${saveQueueCount}件`;
+            } else {
+                badge.className = 'badge bg-success text-white p-2';
+                badge.innerHTML = '✅ すべて保存済み';
+                setTimeout(() => { badge.style.display = 'none'; }, 3000);
+            }
+        }
+
+        function showSaveError(errorMsg, orderInfo) {
+            const container = document.getElementById('save-error-container');
+            const id = 'serr-' + Date.now();
+            const div = document.createElement('div');
+            div.id = id;
+            div.className = 'toast show shadow';
+            div.style.cssText = 'border-radius:10px; min-width:280px; border:1px solid #f5c2c7; background:#fff;';
+            div.innerHTML = `
+                <div class="toast-header bg-danger text-white" style="border-radius:10px 10px 0 0;">
+                    <strong class="me-auto">⚠ 保存エラー</strong>
+                    <button class="btn-close btn-close-white" onclick="document.getElementById('${id}').remove()"></button>
+                </div>
+                <div class="toast-body small">
+                    <div class="text-danger fw-bold mb-1">保存に失敗しました</div>
+                    <div>${orderInfo}</div>
+                    <hr class="my-1">
+                    <div class="text-muted" style="font-size:0.8rem;">${errorMsg}</div>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
         async function callGAS(func, ...args) {
             return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[func](...args));
         }
@@ -357,6 +527,7 @@
             if(navLink) navLink.classList.add('active');
             if (pageId === 'dashboard') loadDashboardData();
             if (pageId === 'shipping-page') loadShippingData();
+            if (pageId === 'stock-list-page') { if (allStockListCache.length === 0) loadStockList(); else applyStockFilters(); }
         }
 
         function formatProductOption(state) {
@@ -382,24 +553,29 @@
             return null;
         }
 
+        function renderDashboard(data) {
+            document.getElementById('db-total-orders').textContent = data.total;
+            document.getElementById('db-confirmed-orders').textContent = data.confirmed;
+            document.getElementById('db-pending-orders').textContent = data.pending;
+            document.getElementById('db-ship-count').textContent = data.shipCount;
+            document.getElementById('db-total-sales').textContent = `¥${data.sales.toLocaleString()}`;
+            const alertList = document.getElementById('alert-customer-list');
+            alertList.innerHTML = '';
+            if (data.alertCustomers.length > 0) {
+                data.alertCustomers.forEach(c => {
+                    const item = document.createElement('div');
+                    item.className = 'list-group-item alert-customer-item d-flex justify-content-between align-items-center';
+                    item.innerHTML = `<div><span class="fw-bold">${c.name}</span><span class="small text-muted ms-2">最終注文: ${c.lastDate}</span></div>`;
+                    alertList.appendChild(item);
+                });
+            } else { alertList.innerHTML = '<div class="list-group-item text-muted text-center">アラート対象なし</div>'; }
+        }
+
         async function loadDashboardData() {
             showLoading(true);
             try {
                 const data = await callGAS('getDashboardData');
-                document.getElementById('db-total-orders').textContent = data.total;
-                document.getElementById('db-confirmed-orders').textContent = data.confirmed;
-                document.getElementById('db-pending-orders').textContent = data.pending;
-                document.getElementById('db-total-sales').textContent = `¥${data.sales.toLocaleString()}`;
-                const alertList = document.getElementById('alert-customer-list');
-                alertList.innerHTML = '';
-                if (data.alertCustomers.length > 0) {
-                    data.alertCustomers.forEach(c => {
-                        const item = document.createElement('div');
-                        item.className = 'list-group-item alert-customer-item d-flex justify-content-between align-items-center';
-                        item.innerHTML = `<div><span class="fw-bold">${c.name}</span><span class="small text-muted ms-2">最終注文: ${c.lastDate}</span></div>`;
-                        alertList.appendChild(item);
-                    });
-                } else { alertList.innerHTML = '<div class="list-group-item text-muted text-center">アラート対象なし</div>'; }
+                renderDashboard(data);
             } catch (e) { console.error(e); } finally { showLoading(false); }
         }
 
@@ -418,8 +594,14 @@
                    select2Data = p.map(pd => ({ id: pd.id, text: pd.name, ...pd }));
                 }
 
-                const orders = await callGAS('getRecentOrders'); 
-                currentOrders = orders; 
+                let orders;
+                if (cachedOrdersPreload !== null) {
+                    orders = cachedOrdersPreload;
+                    cachedOrdersPreload = null;
+                } else {
+                    orders = await callGAS('getRecentOrders');
+                }
+                currentOrders = orders;
 
                 if (orders.length === 0) { container.innerHTML = '<div class="alert alert-info">直近の注文はありません</div>'; return; }
 
@@ -427,8 +609,7 @@
                     const isConfirmed = o.status === '確定済み';
                     const badge = isConfirmed ? '<span class="badge bg-success">確定済み</span>' : '<span class="badge bg-warning text-dark">未確定</span>';
                     const printedBadge = o.isPrinted ? '<span class="badge bg-info text-white ms-2">出力済</span>' : '';
-                    
-                    const shipBadge = `<span class="badge bg-secondary me-2"><i class="bi bi-truck"></i> ${o.shipDateGroup} 出荷分</span>`;
+                    const csvBadge = o.isCsvExported ? '<span class="badge bg-secondary ms-2" title="CSV出力済み"><i class="bi bi-file-earmark-check"></i> CSV済</span>' : '';
                     
                     const createRows = (items) => items.map(item => {
                         let awaseBadge = '';
@@ -449,6 +630,7 @@
                         if(prodInfo && prodInfo.unitMap) {
                             Object.keys(prodInfo.unitMap).forEach(unitName => {
                                 const unitCode = getUnitCode(unitName);
+                                // DBが旧形式（単位名）・新形式（単位コード）どちらでも選択できるよう両方照合
                                 const isSelected = (String(unitCode) === String(item.unit) || unitName === String(item.unit)) ? 'selected' : '';
                                 unitOptions += `<option value="${unitCode}" ${isSelected}>${unitName}</option>`;
                             });
@@ -457,24 +639,35 @@
                             unitOptions = `<option value="${unitCode}" selected>${getUnitName(unitCode) || item.unit || ''}</option>`;
                         }
 
+                        let shipUnitOptions = '';
+                        if(prodInfo && prodInfo.unitMap) {
+                            Object.keys(prodInfo.unitMap).forEach(unitName => {
+                                const isSelected = (item.shipUnit ? unitName === item.shipUnit : unitName === (prodInfo.zaikoUnitName || '')) ? 'selected' : '';
+                                shipUnitOptions += `<option value="${unitName}" ${isSelected}>${unitName}</option>`;
+                            });
+                        } else {
+                            const su = item.shipUnit || (prodInfo ? prodInfo.zaikoUnitName : '') || '';
+                            shipUnitOptions = `<option value="${su}" selected>${su}</option>`;
+                        }
+
                         return `
                         <tr data-detail-id="${item.detailId || ''}" 
                             data-order-id="${item.orderId}" 
                             data-awase-id="${item.awaseId || ''}"
                             data-temp-type="${tempType}"
-                            data-ship-date="${item.shipDate}" 
-                            data-delivery-date="${item.deliveryDate}"
+                            data-ship-date="${item.shipDate}"
                             data-kg="${item.kg || 0}"
                             data-shipping-qty="${item.shippingQty || 0}"
                             data-order-qty="${item.orderQty || item.quantity}"
                             data-order-unit="${item.orderUnit || getUnitName(item.unit)}"
                             data-billing-qty="${item.quantity}">
-                            <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select" data-init="1" onchange="onShipProductChange(this)"></select></div></td>
+                            <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select" onchange="onShipProductChange(this)"></select></div></td>
                             <td><input type="text" class="form-control form-control-sm ship-standard" value="${item.standard||''}" placeholder="規格"></td>
                             <td><input type="text" class="form-control form-control-sm ship-order-unit" value="${item.orderUnit || getUnitName(item.unit) || ''}" style="width:70px;"></td>
                             <td><input type="number" class="form-control form-control-sm ship-order-qty" step="0.5" value="${item.orderQty || item.quantity}" style="width:70px;" onchange="onOrderQtyChange(this)"></td>
                             <td><input type="number" class="form-control form-control-sm ship-kg" value="${item.kg || 0}" style="width:60px; background-color:#e9ecef;" readonly tabindex="-1"></td>
                             <td><select class="form-select form-select-sm ship-unit" data-prev-unit="${item.unit||''}" onchange="onShipUnitChange(this)">${unitOptions}</select></td>
+                            <td><select class="form-select form-select-sm ship-ship-unit" onchange="onShipShipUnitChange(this)">${shipUnitOptions}</select></td>
                             <td><input type="number" class="form-control form-control-sm ship-shipping-qty" value="${item.shippingQty || 0}" style="width:70px;" oninput="this.dataset.manual='1'"></td>
                             <td><input type="date" class="form-control form-control-sm ship-item-sdate" value="${item.shipDate}"></td> 
                             <td><input type="date" class="form-control form-control-sm ship-item-date" value="${item.deliveryDate}"></td> 
@@ -502,7 +695,7 @@
                                 <div class="stock-not-frozen small text-muted text-center" style="display: ${tempType === 'frozen' ? 'none' : 'block'}">-</div>
                             </td>
                             <td><input type="text" class="form-control form-control-sm ship-rem" value="${item.remarks||''}"></td>
-                            <td><button class="btn btn-outline-danger btn-sm border-0" onclick="deleteOrder('${item.detailId}', '${item.orderId}', this)"><i class="bi bi-trash"></i></button></td>
+                            <td><button class="btn btn-outline-danger btn-sm border-0" onclick="deleteOrder('${item.detailId}', '${item.orderId}')"><i class="bi bi-trash"></i></button></td>
                         </tr>
                     `}).join('');
 
@@ -547,9 +740,9 @@
                                         <div class="d-flex align-items-center">
                                             <span class="badge bg-light text-dark border me-2">${o.carrierName || '配送なし'}</span>
                                             <span class="text-muted small me-3">合計: <span class="ship-group-total">¥${o.totalPrice.toLocaleString()}</span></span>
-                                            ${shipBadge}
                                             ${badge}
-                                            ${printedBadge} 
+                                            ${printedBadge}
+                                            ${csvBadge}
                                         </div>
                                     </div>
                                 </button>
@@ -573,6 +766,7 @@
                                                     <th style="min-width:70px">注文時数量</th>
                                                     <th style="min-width:60px">kg</th>
                                                     <th>単位</th>
+                                                    <th style="min-width:80px">出荷単位</th>
                                                     <th style="min-width:70px">出荷数</th>
                                                     <th style="width:115px">出荷日</th>
                                                     <th style="width:115px">納品日</th>
@@ -601,7 +795,7 @@
                                     </div>
 
                                     <div class="text-end border-top pt-2">
-                                        <button class="btn btn-success btn-sm" onclick="confirmOrder(this, '${o.customerId}', '${o.orderDate}')"><i class="bi bi-check-circle"></i> 更新・確定</button>
+                                        <button class="btn btn-success btn-sm confirm-order-btn" data-customer-id="${o.customerId}" data-order-date="${o.orderDate}" onclick="confirmOrder(this, '${o.customerId}', '${o.orderDate}')"><i class="bi bi-check-circle"></i> 更新・確定</button>
                                     </div>
                                 </div>
                             </div>
@@ -619,7 +813,7 @@
                 $('.ship-carrier-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 $('.ship-delivery-select').select2({ theme: 'bootstrap-5', dropdownParent: $('#shipping-page') });
                 
-                $('.ship-cust-select').on('change', async function() {
+                $('.ship-cust-select').on('change', function() {
                     const newCustId = $(this).val();
                     const deliverySelect = $(this).closest('.d-flex.flex-column').find('.ship-delivery-select');
                     
@@ -632,15 +826,6 @@
                     });
                     
                     deliverySelect.trigger('change.select2');
-
-                    if (newCustId && !currentCustomerPrices[newCustId]) {
-                        try {
-                            currentCustomerPrices[newCustId] = await callGAS('getCustomerSpecificPrices', newCustId);
-                        } catch (e) {
-                            console.error("個別単価の取得に失敗しました", e);
-                            currentCustomerPrices[newCustId] = {};
-                        }
-                    }
                 });
 
                 $('.ship-product-select').select2({ 
@@ -651,7 +836,20 @@
                 orders.forEach((o, i) => {
                     const rows = document.querySelectorAll(`#c-${i} tbody tr`);
                     o.items.forEach((item, idx) => {
-                        if(item.productId) $(rows[idx]).find('.ship-product-select').val(item.productId).trigger('change.select2');
+                        if (!item.productId) return;
+                        const row = rows[idx];
+                        $(row).find('.ship-product-select').val(item.productId).trigger('change.select2');
+                        // onShipProductChange がマスタ値で上書きした項目をDB値に戻す
+                        const priceInput = row.querySelector('.ship-price');
+                        const orderUnitInput = row.querySelector('.ship-order-unit');
+                        const unitSelect = row.querySelector('.ship-unit');
+                        if (priceInput) priceInput.value = item.unitPrice;
+                        if (orderUnitInput && item.orderUnit) orderUnitInput.value = item.orderUnit;
+                        if (unitSelect && item.unit) {
+                            const matchOpt = Array.from(unitSelect.options).find(o => o.value === String(item.unit));
+                            if (matchOpt) { unitSelect.value = matchOpt.value; unitSelect.setAttribute('data-prev-unit', matchOpt.value); }
+                        }
+                        if (priceInput) recalcShippingRow(priceInput, false);
                     });
                 });
 
@@ -692,7 +890,7 @@
 
                 rows.forEach(row => {
                     const rowTemp = row.dataset.tempType;
-                    const rowDate = row.dataset.shipDate; 
+                    const rowDate = row.dataset.shipDate;
 
                     const tempMatch = (currentTempFilter === 'all' || rowTemp === currentTempFilter);
                     
@@ -733,6 +931,7 @@
             const newUnit = selectEl.value;
             selectEl.setAttribute('data-prev-unit', newUnit);
 
+            // 単位変更時は出荷数の手動フラグをリセットして強制再計算
             const shippingQtyInput = tr.querySelector('.ship-shipping-qty');
             if (shippingQtyInput) delete shippingQtyInput.dataset.manual;
 
@@ -740,69 +939,74 @@
             recalcShippingRow(qtyInput, true);
         }
 
-        async function onShipProductChange(select) {
+        function onShipShipUnitChange(selectEl) {
+            const tr = selectEl.closest('tr');
+            const shippingQtyInput = tr.querySelector('.ship-shipping-qty');
+            if (shippingQtyInput) delete shippingQtyInput.dataset.manual;
+            const qtyInput = tr.querySelector('.ship-qty');
+            recalcShippingRow(qtyInput, false);
+        }
+
+        function onShipProductChange(select) {
             const productId = $(select).val();
             const tr = select.closest('tr');
             const product = select2Data.find(p => String(p.id) === String(productId));
-            
-            const isInit = select.dataset.init === "1";
-            select.dataset.init = "0"; 
-            
             if (product) {
-                if (!isInit) {
-                    const accordionItem = tr.closest('.accordion-item');
-                    const custId = accordionItem ? $(accordionItem).find('.ship-cust-select').val() : null;
-                    
-                    let applyPrice = product.price;
+                tr.querySelector('.ship-price').value = product.price;
+                tr.querySelector('.ship-case').value = product.caseQty;
+                tr.querySelector('.ship-gosu').value = product.gosu;
+                tr.querySelector('.ship-standard').value = product.standard || '';
 
-                    if (custId) {
-                        if (!currentCustomerPrices[custId]) {
-                            try {
-                                currentCustomerPrices[custId] = await callGAS('getCustomerSpecificPrices', custId);
-                            } catch (e) {
-                                currentCustomerPrices[custId] = {};
-                            }
-                        }
-                        const custPrices = currentCustomerPrices[custId] || {};
-                        if (custPrices[productId] !== undefined && custPrices[productId] !== null) {
-                            applyPrice = custPrices[productId];
-                        }
-                    }
-
-                    tr.querySelector('.ship-price').value = applyPrice;
-                    tr.querySelector('.ship-case').value = product.caseQty;
-                    tr.querySelector('.ship-gosu').value = product.gosu;
-                    tr.querySelector('.ship-standard').value = product.standard || '';
-
-                    const orderUnitInput = tr.querySelector('.ship-order-unit');
-                    if (orderUnitInput) orderUnitInput.value = product.tradeUnitName || '';
-                }
+                // 注文時単位名を取引単位名で初期セット
+                const orderUnitInput = tr.querySelector('.ship-order-unit');
+                if (orderUnitInput) orderUnitInput.value = product.tradeUnitName || '';
 
                 const unitSelect = tr.querySelector('.ship-unit');
-                const currentSelectedUnit = isInit ? unitSelect.value : null;
+                unitSelect.innerHTML = '';
 
-                if (!isInit) {
-                    unitSelect.innerHTML = '';
+                if(product.unitMap && Object.keys(product.unitMap).length > 0) {
+                    Object.keys(product.unitMap).forEach(unitName => {
+                        const option = document.createElement('option');
+                        const unitCode = getUnitCode(unitName);
+                        option.value = unitCode;
+                        option.textContent = unitName;
+                        // 取引単位コードと一致する選択肢をデフォルト選択
+                        if(String(unitCode) === String(product.tradeUnitCode)) option.selected = true;
+                        unitSelect.appendChild(option);
+                    });
+                } else {
+                    const option = document.createElement('option');
+                    const unitCode = getUnitCode(product.tradeUnitName || product.unit || '');
+                    option.value = unitCode;
+                    option.textContent = product.tradeUnitName || product.unit || '';
+                    option.selected = true;
+                    unitSelect.appendChild(option);
+                }
+
+                unitSelect.setAttribute('data-prev-unit', unitSelect.value);
+
+                // 出荷単位セレクトの初期化
+                const shipShipUnitSelect = tr.querySelector('.ship-ship-unit');
+                if (shipShipUnitSelect) {
+                    shipShipUnitSelect.innerHTML = '';
                     if(product.unitMap && Object.keys(product.unitMap).length > 0) {
                         Object.keys(product.unitMap).forEach(unitName => {
                             const option = document.createElement('option');
-                            const unitCode = getUnitCode(unitName);
-                            option.value = unitCode;
+                            option.value = unitName;
                             option.textContent = unitName;
-                            if(String(unitCode) === String(product.tradeUnitCode)) option.selected = true;
-                            unitSelect.appendChild(option);
+                            if(unitName === product.zaikoUnitName) option.selected = true;
+                            shipShipUnitSelect.appendChild(option);
                         });
-                    } else {
+                    } else if (product.zaikoUnitName) {
                         const option = document.createElement('option');
-                        const unitCode = getUnitCode(product.tradeUnitName || product.unit || '');
-                        option.value = unitCode;
-                        option.textContent = product.tradeUnitName || product.unit || '';
+                        option.value = product.zaikoUnitName;
+                        option.textContent = product.zaikoUnitName;
                         option.selected = true;
-                        unitSelect.appendChild(option);
+                        shipShipUnitSelect.appendChild(option);
                     }
-                    unitSelect.setAttribute('data-prev-unit', unitSelect.value);
                 }
 
+                // tempTypeの更新と引当UIの切り替え
                 tr.dataset.tempType = product.tempType;
                 if (product.tempType === 'frozen') {
                     tr.querySelector('.stock-action-area').style.display = 'block';
@@ -822,11 +1026,13 @@
             
             const price = parseFloat(tr.querySelector('.ship-price').value) || 0; 
             
+            // 注文時単位は ship-order-unit（単位名）から取得、なければ ship-unit（単位コード）を名前に変換して使用
             const orderUnitInput = tr.querySelector('.ship-order-unit');
             const orderUnit = orderUnitInput && orderUnitInput.value
                 ? orderUnitInput.value
                 : getUnitName(tr.querySelector('.ship-unit').value);
             
+            // 計算のベースとなる数量は ship-order-qty から取得
             const orderQtyInput = tr.querySelector('.ship-order-qty');
             const orderQty = orderQtyInput ? (parseFloat(orderQtyInput.value) || 0) : (parseFloat(tr.querySelector('.ship-qty').value) || 0);
             
@@ -835,29 +1041,40 @@
             
             if (!product || !product.unitMap) return;
 
+            // Phase 1: 受注単位からの絶対値正規化 (Order to Absolute Base)
             const factorOrder = product.unitMap[orderUnit];
             
             if (factorOrder === undefined) {
                 console.warn(`Missing Unit Factor: 単位 '${orderUnit}' の換算係数が存在しません。`);
-                return; 
+                return; // 計算アボート
             }
             
+            // 絶対重量(kg)の算出
             const kg = orderQty * factorOrder;
+
+            // Phase 2: 後続ドメインへの分配計算 (Absolute Base to Domains)
+            
+            // 2-1. 請求・売上ドメイン計算
             const billingQty = kg; 
             const amount = billingQty * price;
             
+            // 2-2. 物流・出荷ドメイン計算（逆算・端数丸め処理）
             let shippingQty = 0;
-            const factorZaiko = product.unitMap[product.zaikoUnitName];
+            const shipShipUnitSel = tr.querySelector('.ship-ship-unit');
+            const shipUnitName = (shipShipUnitSel && shipShipUnitSel.value) ? shipShipUnitSel.value : product.zaikoUnitName;
+            const factorZaiko = product.unitMap[shipUnitName];
             if (factorZaiko) {
                 shippingQty = round1st(kg / factorZaiko);
             }
             
+            // 箱数の算出 (優先順位：単箱 > c/s > 箱)
             let boxQty = null;
             const factorBox = product.unitMap['単箱'] || product.unitMap['c/s'] || product.unitMap['箱'];
             if (factorBox) {
                 boxQty = round1st(kg / factorBox);
             }
 
+            // --- UIとデータへの反映 ---
             tr.querySelector('.ship-total').textContent = `¥${Math.floor(amount).toLocaleString()}`;
             
             const caseCountInput = tr.querySelector('.ship-case-count');
@@ -867,6 +1084,7 @@
                 caseCountInput.value = ''; 
             }
             
+            // 新設したフィールドにも値をセット
             const kgInput = tr.querySelector('.ship-kg');
             if (kgInput) kgInput.value = round1st(kg);
 
@@ -880,6 +1098,7 @@
                 qtyInput.value = billingQty;
             }
 
+            // データ永続化のために tr 要素のデータセットに保持
             tr.dataset.kg = kg;
             tr.dataset.billingQty = billingQty;
             tr.dataset.shippingQty = shippingQty;
@@ -899,8 +1118,7 @@
         function addNewShippingRow(btn, parentId) {
             const tbody = btn.closest('.accordion-body').querySelector('tbody');
             const rowHtml = `
-                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" 
-                    data-ship-date="${currentDateFilter || defaultShipDate}" data-delivery-date="${currentDateFilter || defaultDeliveryDate}"
+                <tr data-detail-id="" data-order-id="${parentId}" data-awase-id="" data-temp-type="chilled" data-ship-date="${currentDateFilter || defaultShipDate}"
                     data-kg="0" data-shipping-qty="0" data-order-qty="0" data-order-unit="" data-billing-qty="0">
                     <td><div class="ship-product-select-container"><select class="form-select form-select-sm ship-product-select-new" onchange="onShipProductChange(this)"><option></option></select></div></td>
                     <td><input type="text" class="form-control form-control-sm ship-standard" placeholder="規格"></td>
@@ -908,9 +1126,10 @@
                     <td><input type="number" class="form-control form-control-sm ship-order-qty" step="0.5" value="0" style="width:70px;" onchange="onOrderQtyChange(this)"></td>
                     <td><input type="number" class="form-control form-control-sm ship-kg" value="0" style="width:60px; background-color:#e9ecef;" readonly tabindex="-1"></td>
                     <td><select class="form-select form-select-sm ship-unit" data-prev-unit="" onchange="onShipUnitChange(this)"></select></td>
+                    <td><select class="form-select form-select-sm ship-ship-unit" onchange="onShipShipUnitChange(this)"></select></td>
                     <td><input type="number" class="form-control form-control-sm ship-shipping-qty" value="0" style="width:70px;" oninput="this.dataset.manual='1'"></td>
-                    <td><input type="date" class="form-control form-control-sm ship-item-sdate" value="${currentDateFilter || defaultShipDate}"></td>
-                    <td><input type="date" class="form-control form-control-sm ship-item-date" value="${defaultDeliveryDate}"></td>
+                    <td><input type="date" class="form-control form-control-sm ship-item-sdate" value="${defaultShipDate}"></td>
+                    <td><input type="date" class="form-control form-control-sm ship-item-date" value="${currentDateFilter || defaultDeliveryDate}"></td>
                     
                     <td><input type="number" class="form-control form-control-sm ship-price" value="0" onchange="recalcShippingRow(this, false)" style="width:70px;"></td>
                     
@@ -1009,8 +1228,7 @@
             return color;
         }
 
-        // ★変更：削除後、画面全体をリロードせずに見た目だけ消す
-        async function deleteOrder(detailId, orderId, btn) {
+        async function deleteOrder(detailId, orderId) {
             const result = await Swal.fire({
                 title: '削除しますか？',
                 text: '本当にこの明細を削除しますか？',
@@ -1022,31 +1240,21 @@
             if(!result.isConfirmed) return;
 
             showLoading(true);
-            try { 
-                await callGAS('deleteOrder', detailId, orderId); 
-                btn.closest('tr').remove();
-                showToast('明細を削除しました', 'success');
-            } catch(e) { 
-                Swal.fire('エラー', e.message, 'error'); 
-            } finally { 
-                showLoading(false); 
-            }
+            try { await callGAS('deleteOrder', detailId, orderId); loadShippingData(); } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
         }
 
-        // ★変更：保存後、画面全体をリロードせずにバッジだけ更新する
-        async function confirmOrder(btn, customerId, date) {
-            const itemEl = btn.closest('.accordion-item');
+        function collectOrderData(itemEl) {
             const newCustomerId = $(itemEl).find('.ship-cust-select').val();
             const newCustomerName = $(itemEl).find('.ship-cust-select option:selected').text();
-            const newDeliveryDestination = $(itemEl).find('.ship-delivery-select').val(); 
-            const newCarrierName = $(itemEl).find('.ship-carrier-select').val(); 
+            const newDeliveryDestination = $(itemEl).find('.ship-delivery-select').val();
+            const newCarrierName = $(itemEl).find('.ship-carrier-select').val();
 
             const items = [];
-            let validationError = false;
-            
+            let hasError = false;
+
             itemEl.querySelectorAll('tbody tr').forEach(tr => {
                 const productId = $(tr).find('.ship-product-select').val();
-                if (!productId) validationError = true; 
+                if (!productId) hasError = true;
 
                 const orderQtyInput = tr.querySelector('.ship-order-qty');
                 const orderUnitInput = tr.querySelector('.ship-order-unit');
@@ -1056,31 +1264,69 @@
 
                 items.push({
                     orderId: tr.dataset.orderId,
-                    detailId: tr.dataset.detailId, 
+                    detailId: tr.dataset.detailId,
                     productId: productId,
-                    standard: tr.querySelector('.ship-standard').value, 
-                    unit: tr.querySelector('.ship-unit').value, 
-                    shipDate: tr.querySelector('.ship-item-sdate').value, 
-                    deliveryDate: tr.querySelector('.ship-item-date').value, 
-                    price: parseInt(tr.querySelector('.ship-price').value)||0,
-                    
+                    standard: tr.querySelector('.ship-standard').value,
+                    unit: tr.querySelector('.ship-unit').value,
+                    shipDate: tr.querySelector('.ship-item-sdate').value,
+                    deliveryDate: tr.querySelector('.ship-item-date').value,
+                    price: parseInt(tr.querySelector('.ship-price').value) || 0,
                     orderQty: orderQtyInput ? (parseFloat(orderQtyInput.value) || 0) : (parseFloat(tr.dataset.orderQty) || parseFloat(tr.querySelector('.ship-qty').value) || 0),
                     orderUnit: orderUnitInput ? orderUnitInput.value : (tr.dataset.orderUnit || tr.querySelector('.ship-unit').value),
                     kg: kgInput ? (parseFloat(kgInput.value) || 0) : (parseFloat(tr.dataset.kg) || 0),
                     shippingQty: shippingQtyInput ? (parseFloat(shippingQtyInput.value) || 0) : (parseFloat(tr.dataset.shippingQty) || 0),
+                    shipUnit: tr.querySelector('.ship-ship-unit') ? tr.querySelector('.ship-ship-unit').value : '',
                     caseCount: parseFloat(tr.querySelector('.ship-case-count').value) || 0,
-                    quantity: qtyInput ? (parseFloat(qtyInput.value) || 0) : (parseFloat(tr.dataset.billingQty) || 0), 
-
-                    awaseId: tr.dataset.awaseId || '', 
-                    isAwase: (!!tr.dataset.awaseId), 
+                    quantity: qtyInput ? (parseFloat(qtyInput.value) || 0) : (parseFloat(tr.dataset.billingQty) || 0),
+                    awaseId: tr.dataset.awaseId || '',
+                    isAwase: (!!tr.dataset.awaseId),
                     newRemarks: tr.querySelector('.ship-rem').value,
                     warehouseCode: tr.querySelector('.ship-warehouse-code') ? tr.querySelector('.ship-warehouse-code').value : '',
                     lotNumber: tr.querySelector('.ship-lot-number') ? tr.querySelector('.ship-lot-number').value : ''
                 });
             });
-            
-            if (validationError) return Swal.fire('注意', '商品が選択されていない行があります。', 'warning');
-            
+
+            return { newCustomerId, newCustomerName, newDeliveryDestination, newCarrierName, items, hasError };
+        }
+
+        function executeSave(btn, customerId, date, data) {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 保存中...';
+            }
+            saveQueueCount++;
+            updateSaveStatus();
+
+            const orderInfo = `顧客: ${data.newCustomerName}（${data.items.length}件）`;
+
+            callGAS('updateAndConfirmOrder', {
+                customerId, orderDate: date,
+                newCustomerId: data.newCustomerId,
+                newCustomerName: data.newCustomerName,
+                newDeliveryDestination: data.newDeliveryDestination,
+                newCarrierName: data.newCarrierName,
+                items: data.items
+            }).then(() => {
+                saveQueueCount--;
+                updateSaveStatus();
+                loadShippingData();
+            }).catch(e => {
+                saveQueueCount--;
+                updateSaveStatus();
+                showSaveError(e.message, orderInfo);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-check-circle"></i> 更新・確定';
+                }
+            });
+        }
+
+        async function confirmOrder(btn, customerId, date) {
+            const itemEl = btn.closest('.accordion-item');
+            const data = collectOrderData(itemEl);
+
+            if (data.hasError) return Swal.fire('注意', '商品が選択されていない行があります。', 'warning');
+
             const result = await Swal.fire({
                 title: '確定しますか？',
                 text: '内容を更新・確定しますか？',
@@ -1089,26 +1335,9 @@
                 confirmButtonText: 'はい',
                 cancelButtonText: 'キャンセル'
             });
-            if(!result.isConfirmed) return;
+            if (!result.isConfirmed) return;
 
-            showLoading(true);
-            try { 
-                await callGAS('updateAndConfirmOrder', { 
-                    customerId, orderDate: date, 
-                    newCustomerId, newCustomerName, newDeliveryDestination, newCarrierName,
-                    items 
-                }); 
-                
-                showToast('保存が完了しました', 'success');
-                
-                const headerBadge = itemEl.querySelector('.accordion-header .badge.bg-warning');
-                if (headerBadge) {
-                    headerBadge.className = 'badge bg-success';
-                    headerBadge.textContent = '確定済み';
-                }
-                itemEl.dataset.status = 'confirmed';
-                
-            } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
+            executeSave(btn, customerId, date, data);
         }
 
         async function exportDailyCsv() {
@@ -1120,6 +1349,8 @@
                 const csv = await callGAS('exportDailyCsv', targetDate);
                 if (!csv) {
                     Swal.fire('情報', '対象日のデータがありません', 'info');
+                } else if (csv === 'ALREADY_EXPORTED') {
+                    Swal.fire('情報', 'この日付のデータはすでにCSV出力済みです', 'info');
                 } else {
                     const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv' });
                     const a = document.createElement('a');
@@ -1173,7 +1404,7 @@
                     byteNumbers[i] = byteCharacters.charCodeAt(i);
                 }
                 const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], {type: "application/pdf"});
+                const blob = new Blob([byteArray], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
                 
                 const link = document.createElement('a');
                 link.href = window.URL.createObjectURL(blob);
@@ -1185,6 +1416,22 @@
                 Swal.fire('完了', res.message, 'success');
                 loadShippingData(); 
             } catch(e) { Swal.fire('出力エラー', e.message, 'error'); } finally { showLoading(false); }
+        }
+        
+        async function generateShippingInstructions() {
+            showLoading(true);
+            try {
+                const res = await callGAS('generateShippingInstructions', []);
+                window.open(res.url, '_blank');
+            } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
+        }
+
+        async function generateFrozenShippingInstructions() {
+            showLoading(true);
+            try {
+                const res = await callGAS('generateFrozenShippingInstructions', []);
+                window.open(res.url, '_blank');
+            } catch(e) { Swal.fire('エラー', e.message, 'error'); } finally { showLoading(false); }
         }
 
         function importCsv() {
@@ -1215,6 +1462,157 @@
                     reader.onerror = function() { Swal.fire('エラー', 'ファイルの読み込みに失敗しました', 'error'); showLoading(false); };
                 }
             });
+        }
+
+        // --- 在庫一覧ページ ロジック ---
+        let slTempFilter = 'all';
+        let slSortKey = '';
+        let slSortAsc = true;
+        let slHasMfgDate = false;
+
+        async function loadStockList() {
+            showLoading(true);
+            try {
+                const data = await callGAS('getAllStocksWithProduct');
+                allStockListCache = data || [];
+
+                // 倉庫ドロップダウンを動的生成
+                const warehouseSet = new Set(allStockListCache.map(s => s.warehouseName).filter(Boolean));
+                const wSelect = document.getElementById('sl-filter-warehouse');
+                wSelect.innerHTML = '<option value="">すべて</option>';
+                [...warehouseSet].sort((a, b) => a.localeCompare(b, 'ja')).forEach(w => {
+                    const opt = document.createElement('option');
+                    opt.value = w;
+                    opt.textContent = w;
+                    wSelect.appendChild(opt);
+                });
+
+                // 製造日カラムの表示有無を判定
+                slHasMfgDate = allStockListCache.some(s => s.manufactureDate);
+                document.getElementById('sl-mfg-date-header').style.display = slHasMfgDate ? '' : 'none';
+                document.getElementById('sl-mfg-date-note').style.display = slHasMfgDate ? 'none' : 'inline';
+
+                applyStockFilters();
+            } catch (e) {
+                Swal.fire('エラー', '在庫データの取得に失敗しました: ' + e.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function setSlTempFilter(btn, val) {
+            document.querySelectorAll('#sl-temp-filter-group button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            slTempFilter = val;
+            applyStockFilters();
+        }
+
+        // ひらがな→カタカナ変換（ふりがな検索用）
+        function toKatakana(str) {
+            return str.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+        }
+
+        function applyStockFilters() {
+            const keyword = document.getElementById('sl-filter-keyword').value.trim().toLowerCase();
+            const kanaRaw = document.getElementById('sl-filter-kana').value.trim();
+            const kana = toKatakana(kanaRaw).toUpperCase();
+            const standard = document.getElementById('sl-filter-standard').value.trim().toLowerCase();
+            const brand = document.getElementById('sl-filter-brand').value.trim().toLowerCase();
+            const lot = document.getElementById('sl-filter-lot').value.trim().toLowerCase();
+            const warehouse = document.getElementById('sl-filter-warehouse').value;
+            const expFrom = document.getElementById('sl-filter-exp-from').value;
+            const expTo = document.getElementById('sl-filter-exp-to').value;
+            const mfgFrom = document.getElementById('sl-filter-mfg-from').value;
+            const mfgTo = document.getElementById('sl-filter-mfg-to').value;
+
+            let filtered = allStockListCache.filter(s => {
+                if (keyword && !(s.productId.toLowerCase().includes(keyword) || s.productName.toLowerCase().includes(keyword))) return false;
+                if (kana && !toKatakana(s.kana || '').toUpperCase().startsWith(kana)) return false;
+                if (standard && !s.standard.toLowerCase().includes(standard)) return false;
+                if (brand && !s.brand.toLowerCase().includes(brand)) return false;
+                if (lot && !s.lotNumber.toLowerCase().includes(lot)) return false;
+                if (warehouse && s.warehouseName !== warehouse) return false;
+                if (slTempFilter !== 'all' && s.tempType !== slTempFilter) return false;
+                if (expFrom && s.expirationDate && s.expirationDate < expFrom) return false;
+                if (expTo && s.expirationDate && s.expirationDate > expTo) return false;
+                if (mfgFrom && s.manufactureDate && s.manufactureDate < mfgFrom) return false;
+                if (mfgTo && s.manufactureDate && s.manufactureDate > mfgTo) return false;
+                return true;
+            });
+
+            if (slSortKey) {
+                filtered = filtered.slice().sort((a, b) => {
+                    const av = a[slSortKey] ?? '';
+                    const bv = b[slSortKey] ?? '';
+                    if (slSortKey === 'stockQty') return slSortAsc ? Number(av) - Number(bv) : Number(bv) - Number(av);
+                    const cmp = String(av).localeCompare(String(bv), 'ja');
+                    return slSortAsc ? cmp : -cmp;
+                });
+            }
+
+            renderStockTable(filtered);
+        }
+
+        function renderStockTable(rows) {
+            document.getElementById('sl-result-count').textContent = rows.length;
+            const tbody = document.getElementById('sl-stock-tbody');
+
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">該当する在庫がありません</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = rows.map(s => {
+                const tempBadge = s.tempType === 'frozen'
+                    ? '<span class="badge bg-primary">🧊冷凍</span>'
+                    : '<span class="badge bg-info text-dark">❄️チルド</span>';
+                const expClass = (s.expirationDate && s.expirationDate < new Date().toISOString().split('T')[0]) ? 'text-danger fw-bold' : '';
+                const mfgCell = slHasMfgDate ? `<td class="small">${s.manufactureDate || '-'}</td>` : '';
+                return `
+                    <tr>
+                        <td class="small text-muted">${s.productId}</td>
+                        <td class="small fw-bold">${s.productName}</td>
+                        <td class="small">${s.brand || '-'}</td>
+                        <td class="small">${s.standard || '-'}</td>
+                        <td class="text-center">${tempBadge}</td>
+                        <td class="small">${s.warehouseName} <span class="text-muted">(${s.warehouseCode})</span></td>
+                        <td class="small fw-bold text-primary">${s.lotNumber || '-'}</td>
+                        <td class="small ${expClass}">${s.expirationDate || '-'}</td>
+                        ${mfgCell}
+                        <td class="text-end fw-bold">${Number(s.stockQty).toLocaleString()}</td>
+                        <td class="small">${s.unit}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function sortStockTable(key) {
+            if (slSortKey === key) {
+                slSortAsc = !slSortAsc;
+            } else {
+                slSortKey = key;
+                slSortAsc = true;
+            }
+            applyStockFilters();
+        }
+
+        function clearStockFilters() {
+            document.getElementById('sl-filter-keyword').value = '';
+            document.getElementById('sl-filter-kana').value = '';
+            document.getElementById('sl-filter-standard').value = '';
+            document.getElementById('sl-filter-brand').value = '';
+            document.getElementById('sl-filter-lot').value = '';
+            document.getElementById('sl-filter-warehouse').value = '';
+            document.getElementById('sl-filter-exp-from').value = '';
+            document.getElementById('sl-filter-exp-to').value = '';
+            document.getElementById('sl-filter-mfg-from').value = '';
+            document.getElementById('sl-filter-mfg-to').value = '';
+            slTempFilter = 'all';
+            document.querySelectorAll('#sl-temp-filter-group button').forEach(b => b.classList.remove('active'));
+            document.querySelector('#sl-temp-filter-group button').classList.add('active');
+            slSortKey = '';
+            slSortAsc = true;
+            applyStockFilters();
         }
 
         // --- 在庫引当モーダル用ロジック ---
